@@ -14,6 +14,7 @@ import {
 import BatchDashboardMap from '../components/BatchDashboardMap'
 import ImageThumbGrid from '../components/ImageThumbGrid'
 import { CLASS_COLORS, CLASS_EMOJIS, CLASS_META } from '../constants/classes'
+import '../dashboard.css'
 
 const PAGE_SIZE = 30
 const ACTIVE = new Set(['queued', 'discovering', 'running', 'cancelling'])
@@ -21,49 +22,37 @@ const ACTIVE = new Set(['queued', 'discovering', 'running', 'cancelling'])
 function DetectionList({ detections, filterClass }) {
   const list = (detections || []).filter((d) => !filterClass || d.class === filterClass)
   if (list.length === 0) {
-    return <div style={{ color: 'var(--muted)', fontSize: 13, padding: 12 }}>No detections</div>
+    return <div style={{ color: 'var(--muted)', fontSize: 13, padding: 8 }}>No detections for this filter</div>
   }
   return (
-    <div style={{ padding: '0 12px 12px' }}>
+    <>
       {list.map((det, i) => {
         const color = CLASS_COLORS[det.class] || '#aaa'
         return (
           <div
             key={i}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '7px 10px',
-              marginBottom: 4,
-              borderRadius: 6,
-              background: 'var(--surface2)',
-              border: `1px solid ${color}22`,
-            }}
+            className="dashboard-detection-item"
+            style={{ borderColor: `${color}33` }}
           >
-            <span style={{ fontSize: 16 }}>{CLASS_EMOJIS[det.class] || '📦'}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{det.class}</span>
-                <span style={{ fontSize: 11, color, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+            <span className="dashboard-detection-emoji">{CLASS_EMOJIS[det.class] || '📦'}</span>
+            <div className="dashboard-detection-body">
+              <div className="dashboard-detection-top">
+                <span className="dashboard-detection-class">{det.class}</span>
+                <span className="dashboard-detection-pct" style={{ color }}>
                   {(det.confidence * 100).toFixed(0)}%
                 </span>
               </div>
-              <div style={{ height: 3, background: 'var(--surface)', borderRadius: 2 }}>
+              <div className="dashboard-detection-bar">
                 <div
-                  style={{
-                    height: '100%',
-                    width: `${det.confidence * 100}%`,
-                    background: color,
-                    borderRadius: 2,
-                  }}
+                  className="dashboard-detection-bar-fill"
+                  style={{ width: `${det.confidence * 100}%`, background: color }}
                 />
               </div>
             </div>
           </div>
         )
       })}
-    </div>
+    </>
   )
 }
 
@@ -72,48 +61,35 @@ function LocationMeta({ result }) {
   const lat = result.lat
   const lng = result.lng
   return (
-    <div
-      style={{
-        padding: '12px 14px',
-        borderBottom: '1px solid var(--border)',
-        background: 'var(--surface2)',
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          color: 'var(--muted)',
-          marginBottom: 8,
-        }}
-      >
-        Location
+    <div className="dashboard-location">
+      <div className="dashboard-location-title">Location</div>
+      <div className="dashboard-coords">
+        <div className="dashboard-coord-card">
+          <div className="dashboard-coord-label">Latitude</div>
+          <div className="dashboard-coord-value">{lat != null ? Number(lat).toFixed(6) : '—'}</div>
+        </div>
+        <div className="dashboard-coord-card">
+          <div className="dashboard-coord-label">Longitude</div>
+          <div className="dashboard-coord-value">{lng != null ? Number(lng).toFixed(6) : '—'}</div>
+        </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px', fontSize: 12 }}>
-        <span style={{ color: 'var(--muted)' }}>Latitude</span>
-        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--green)', fontWeight: 600 }}>
-          {lat != null ? Number(lat).toFixed(6) : '—'}
-        </span>
-        <span style={{ color: 'var(--muted)' }}>Longitude</span>
-        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--green)', fontWeight: 600 }}>
-          {lng != null ? Number(lng).toFixed(6) : '—'}
-        </span>
-        <span style={{ color: 'var(--muted)' }}>Image</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, wordBreak: 'break-all' }}>
-          {result.image_id}
-        </span>
-        {result.captured_at && (
-          <>
-            <span style={{ color: 'var(--muted)' }}>Captured</span>
-            <span style={{ fontFamily: 'var(--font-mono)' }}>
-              {new Date(Number(result.captured_at)).toLocaleString()}
-            </span>
-          </>
-        )}
+      <div className="dashboard-meta-row">
+        Image <span>{result.image_id}</span>
       </div>
+      {result.captured_at && (
+        <div className="dashboard-meta-row">
+          Captured <span>{new Date(Number(result.captured_at)).toLocaleString()}</span>
+        </div>
+      )}
     </div>
   )
+}
+
+function statusBadge(status) {
+  if (status === 'cancelled') return <span className="dashboard-badge cancelled">Cancelled</span>
+  if (ACTIVE.has(status)) return <span className="dashboard-badge running">{status}</span>
+  if (status === 'completed') return <span className="dashboard-badge running">Completed</span>
+  return null
 }
 
 export default function BatchDashboard() {
@@ -144,9 +120,7 @@ export default function BatchDashboard() {
     try {
       const { data } = await listBatchJobs()
       setJobs(data.jobs || [])
-      if (!paramJobId && data.jobs?.length) {
-        setJob(data.jobs[0])
-      }
+      if (!paramJobId && data.jobs?.length) setJob(data.jobs[0])
     } catch (_) {
       toast.error('Failed to load batch jobs')
     }
@@ -239,35 +213,18 @@ export default function BatchDashboard() {
   const current = filteredResults[displayIndex] || filteredResults[0]
   const selectedImageId = current?.image_id ?? null
 
-  const goPrev = useCallback(() => {
-    setIndex((i) => Math.max(0, i - 1))
-  }, [])
-
-  const goNext = useCallback(() => {
-    setIndex((i) => Math.min(filteredResults.length - 1, i + 1))
-  }, [filteredResults.length])
+  const goPrev = useCallback(() => setIndex((i) => Math.max(0, i - 1)), [])
+  const goNext = useCallback(
+    () => setIndex((i) => Math.min(filteredResults.length - 1, i + 1)),
+    [filteredResults.length]
+  )
 
   const handleSelectFromMap = useCallback(
     (imageId) => {
       const idx = filteredResults.findIndex((r) => r.image_id === imageId)
-      if (idx >= 0) {
-        setIndex(idx)
-        return
-      }
-      const geo = filteredGeoMarkers.find((m) => m.image_id === imageId)
-      if (geo) {
-        const inResults = results.findIndex((r) => r.image_id === imageId)
-        if (inResults >= 0) {
-          const filteredIdx = filterClass
-            ? results
-                .filter((r) => (r.counts?.[filterClass] || 0) > 0)
-                .findIndex((r) => r.image_id === imageId)
-            : inResults
-          if (filteredIdx >= 0) setIndex(filteredIdx)
-        }
-      }
+      if (idx >= 0) setIndex(idx)
     },
-    [filteredResults, filteredGeoMarkers, results, filterClass]
+    [filteredResults]
   )
 
   useEffect(() => {
@@ -320,75 +277,66 @@ export default function BatchDashboard() {
 
   const agg = job?.aggregate_counts || {}
   const totalObjects = Object.values(agg).reduce((a, b) => a + b, 0)
+  const progressPct = job?.total ? Math.round((job.processed / job.total) * 100) : 0
 
   if (!jobId && jobs.length === 0) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
-        <h2 style={{ marginBottom: 8 }}>No batch results yet</h2>
-        <p style={{ color: 'var(--muted)', marginBottom: 24 }}>
-          Draw a polygon on the map and click Predict to run batch detection.
-        </p>
-        <Link to="/" style={{ color: 'var(--green)', fontWeight: 600 }}>
-          ← Back to map
-        </Link>
+      <div className="dashboard-root">
+        <div className="dashboard-empty-state">
+          <div className="dashboard-empty-icon">📊</div>
+          <h2>No batch results yet</h2>
+          <p>Draw a polygon on the map and run Predict to detect every street image in that area.</p>
+          <Link to="/" className="dashboard-empty-cta">
+            ← Go to map
+          </Link>
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg)' }}>
-      <header
-        style={{
-          padding: '12px 20px',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--surface)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Link to="/" style={{ color: 'var(--green)', textDecoration: 'none', fontWeight: 600, fontSize: 14 }}>
+    <div className="dashboard-root">
+      <header className="dashboard-header">
+        <Link to="/" className="dashboard-back">
           ← Map
         </Link>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontWeight: 800, fontSize: 16 }}>
-            Detection dashboard
-            {job?.status === 'cancelled' && (
-              <span
-                style={{
-                  marginLeft: 8,
-                  fontSize: 11,
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  background: 'rgba(255,100,100,0.2)',
-                  color: '#ff8888',
-                }}
-              >
-                Cancelled
-              </span>
+        <div className="dashboard-title-block">
+          <h1 className="dashboard-title">
+            <span className="brand">Batch</span> dashboard
+            {job?.status && statusBadge(job.status)}
+          </h1>
+          <p className="dashboard-subtitle">
+            {job ? `Job ${jobId?.slice(0, 8)}…` : 'Loading…'}
+            {job && !ACTIVE.has(job.status) && ` · ${job.status}`}
+          </p>
+        </div>
+        {job && (
+          <div className="dashboard-kpis">
+            <div className="dashboard-kpi">
+              <div className="dashboard-kpi-label">Images</div>
+              <div className="dashboard-kpi-value accent">
+                {job.processed}/{job.total}
+              </div>
+            </div>
+            <div className="dashboard-kpi">
+              <div className="dashboard-kpi-label">Objects</div>
+              <div className="dashboard-kpi-value accent">{totalObjects}</div>
+            </div>
+            {job.failed > 0 && (
+              <div className="dashboard-kpi">
+                <div className="dashboard-kpi-label">Failed</div>
+                <div className="dashboard-kpi-value" style={{ color: '#ff8888' }}>
+                  {job.failed}
+                </div>
+              </div>
             )}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-            {job
-              ? `${job.processed}/${job.total} images · ${job.failed} failed · ${totalObjects} objects`
-              : 'Loading…'}
-            {ACTIVE.has(job?.status) && ` · ${job.status}`}
-          </div>
-        </div>
+        )}
         {jobs.length > 1 && (
           <select
+            className="dashboard-select"
             value={jobId || ''}
             onChange={(e) => navigate(`/dashboard/${e.target.value}`)}
-            style={{
-              padding: '6px 10px',
-              borderRadius: 6,
-              background: 'var(--surface2)',
-              color: 'var(--text)',
-              border: '1px solid var(--border)',
-              fontSize: 12,
-            }}
           >
             {jobs.map((j) => (
               <option key={j.job_id} value={j.job_id}>
@@ -398,56 +346,57 @@ export default function BatchDashboard() {
           </select>
         )}
         {job && ACTIVE.has(job.status) && (
-          <button type="button" onClick={handleCancel} disabled={cancelling} style={headerBtn('#c44')}>
+          <button
+            type="button"
+            className="dashboard-btn dashboard-btn-danger"
+            onClick={handleCancel}
+            disabled={cancelling}
+          >
             {cancelling ? 'Cancelling…' : 'Cancel job'}
           </button>
         )}
-        <button type="button" onClick={() => setShowDeleteConfirm(true)} style={headerBtn('var(--surface2)')}>
+        <button
+          type="button"
+          className="dashboard-btn dashboard-btn-ghost"
+          onClick={() => setShowDeleteConfirm(true)}
+        >
           Delete all
         </button>
       </header>
 
       {ACTIVE.has(job?.status) && (
-        <div style={{ padding: '8px 20px', background: 'var(--green-dim)', fontSize: 12 }}>
-          Batch in progress… {job.processed} / {job.total}
+        <div className="dashboard-progress-bar">
+          <span>Processing {job.processed} / {job.total}</span>
+          <div className="dashboard-progress-track">
+            <div className="dashboard-progress-fill" style={{ width: `${progressPct}%` }} />
+          </div>
+          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>{progressPct}%</span>
         </div>
       )}
 
-      <div
-        style={{
-          display: 'flex',
-          gap: 8,
-          padding: '10px 20px',
-          overflowX: 'auto',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--surface)',
-        }}
-      >
-        <button type="button" onClick={() => setFilterClass(null)} style={chipStyle(!filterClass)}>
+      <div className="dashboard-filters">
+        <button
+          type="button"
+          className={`dashboard-chip${!filterClass ? ' active' : ''}`}
+          onClick={() => setFilterClass(null)}
+        >
           All
         </button>
         {CLASS_META.map(({ key, emoji, label }) => (
           <button
             key={key}
             type="button"
+            className={`dashboard-chip${filterClass === key ? ' active' : ''}`}
             onClick={() => setFilterClass(key)}
-            style={chipStyle(filterClass === key)}
           >
             {emoji} {label} ({agg[key] || 0})
           </button>
         ))}
       </div>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        {/* Map column */}
-        <div
-          style={{
-            flex: '0 0 38%',
-            minWidth: 280,
-            borderRight: '1px solid var(--border)',
-            position: 'relative',
-          }}
-        >
+      <div className="dashboard-body">
+        <section className="dashboard-panel dashboard-panel-map">
+          <div className="dashboard-panel-label">Coverage map</div>
           {jobId && (
             <BatchDashboardMap
               key={jobId}
@@ -460,21 +409,12 @@ export default function BatchDashboard() {
               onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
             />
           )}
-        </div>
+        </section>
 
-        {/* Viewer + thumbs */}
-        <div style={{ flex: '0 0 37%', minWidth: 260, display: 'flex', flexDirection: 'column' }}>
+        <section className="dashboard-panel dashboard-panel-viewer">
+          <div className="dashboard-panel-label">Detection preview</div>
           <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              background: '#000',
-              touchAction: 'pan-y',
-              minHeight: 0,
-            }}
+            className="dashboard-viewer"
             onTouchStart={(e) => {
               touchStartX.current = e.touches[0].clientX
             }}
@@ -487,36 +427,21 @@ export default function BatchDashboard() {
             }}
           >
             {current?.image_id && jobId ? (
-              <img
-                src={annotatedImageUrl(jobId, current.image_id)}
-                alt="Detection"
-                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-              />
+              <img src={annotatedImageUrl(jobId, current.image_id)} alt="Detection result" />
             ) : (
-              <div style={{ color: 'var(--muted)', padding: 16, textAlign: 'center', fontSize: 13 }}>
-                {filterClass ? 'No images with this class in loaded results' : 'No images to display'}
+              <div className="dashboard-viewer-empty">
+                {filterClass
+                  ? 'No images with this class in loaded results'
+                  : 'Select a pin on the map or a thumbnail below'}
               </div>
             )}
-            <button type="button" onClick={goPrev} style={navBtn('left')} aria-label="Previous">
+            <button type="button" className="dashboard-nav-btn left" onClick={goPrev} aria-label="Previous">
               ‹
             </button>
-            <button type="button" onClick={goNext} style={navBtn('right')} aria-label="Next">
+            <button type="button" className="dashboard-nav-btn right" onClick={goNext} aria-label="Next">
               ›
             </button>
-            <div
-              style={{
-                position: 'absolute',
-                bottom: 12,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                fontSize: 12,
-                fontFamily: 'var(--font-mono)',
-                color: 'var(--muted)',
-                background: 'rgba(0,0,0,0.6)',
-                padding: '4px 10px',
-                borderRadius: 6,
-              }}
-            >
+            <div className="dashboard-counter">
               {filteredResults.length ? displayIndex + 1 : 0} / {filteredResults.length}
             </div>
           </div>
@@ -526,72 +451,47 @@ export default function BatchDashboard() {
             selectedIndex={displayIndex}
             onSelect={setIndex}
           />
-        </div>
+        </section>
 
-        {/* Details column */}
-        <div
-          style={{
-            flex: '1',
-            minWidth: 240,
-            borderLeft: '1px solid var(--border)',
-            overflow: 'auto',
-            background: 'var(--surface)',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
+        <section className="dashboard-panel dashboard-panel-details">
+          <div className="dashboard-panel-label">Details</div>
           <LocationMeta result={current} />
-          <div
-            style={{
-              padding: '8px 14px',
-              fontSize: 11,
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              borderBottom: '1px solid var(--border)',
-            }}
-          >
-            Detections ({current?.detections?.length || 0})
+          <div className="dashboard-detections-header">
+            Detections · {current?.detections?.length || 0}
+            {filterClass ? ` (${filterClass})` : ''}
           </div>
-          {current ? (
-            <DetectionList detections={current.detections} filterClass={filterClass} />
-          ) : (
-            <div style={{ padding: 12, color: 'var(--muted)', fontSize: 13 }}>Select an image</div>
-          )}
-        </div>
+          <div className="dashboard-detections-list">
+            {current ? (
+              <DetectionList detections={current.detections} filterClass={filterClass} />
+            ) : (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>Select an image to inspect</div>
+            )}
+          </div>
+        </section>
       </div>
 
       {showDeleteConfirm && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-          }}
-        >
+        <div className="dashboard-modal-backdrop" role="presentation" onClick={() => setShowDeleteConfirm(false)}>
           <div
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: 24,
-              maxWidth: 400,
-            }}
+            className="dashboard-modal"
+            role="dialog"
+            aria-labelledby="delete-modal-title"
+            onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ marginBottom: 8 }}>Delete all batch data?</h3>
-            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 20 }}>
-              This removes all saved batch jobs, detection results, and annotated images from the server.
+            <h3 id="delete-modal-title">Delete all batch data?</h3>
+            <p>
+              This permanently removes all saved batch jobs, detection results, and annotated images from the
+              server.
             </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => setShowDeleteConfirm(false)} style={headerBtn('var(--surface2)')}>
+            <div className="dashboard-modal-actions">
+              <button
+                type="button"
+                className="dashboard-btn dashboard-btn-ghost"
+                onClick={() => setShowDeleteConfirm(false)}
+              >
                 Cancel
               </button>
-              <button type="button" onClick={handleDeleteAll} style={headerBtn('#c44')}>
+              <button type="button" className="dashboard-btn dashboard-btn-danger" onClick={handleDeleteAll}>
                 Delete all
               </button>
             </div>
@@ -600,50 +500,4 @@ export default function BatchDashboard() {
       )}
     </div>
   )
-}
-
-function headerBtn(bg) {
-  return {
-    padding: '8px 14px',
-    borderRadius: 6,
-    border: '1px solid var(--border)',
-    background: bg,
-    color: 'var(--text)',
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'var(--font-ui)',
-  }
-}
-
-function chipStyle(active) {
-  return {
-    padding: '6px 12px',
-    borderRadius: 20,
-    border: `1px solid ${active ? 'var(--green)' : 'var(--border)'}`,
-    background: active ? 'var(--green-dim)' : 'transparent',
-    color: 'var(--text)',
-    fontSize: 11,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    fontFamily: 'var(--font-ui)',
-  }
-}
-
-function navBtn(side) {
-  return {
-    position: 'absolute',
-    ...(side === 'left' ? { left: 12 } : { right: 12 }),
-    top: '50%',
-    transform: 'translateY(-50%)',
-    width: 40,
-    height: 40,
-    borderRadius: '50%',
-    border: '1px solid var(--border)',
-    background: 'rgba(15,21,32,0.85)',
-    color: 'var(--text)',
-    fontSize: 24,
-    cursor: 'pointer',
-    lineHeight: 1,
-  }
 }

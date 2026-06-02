@@ -89,7 +89,7 @@ export default function BatchDashboardMap({
   const layer = BASE_LAYERS[basemap]
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div className="dashboard-map-wrap">
       <MapContainer
         center={center}
         zoom={14}
@@ -115,26 +115,8 @@ export default function BatchDashboardMap({
         ))}
       </MapContainer>
       {onBasemapToggle && (
-        <button
-          type="button"
-          onClick={onBasemapToggle}
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            zIndex: 500,
-            padding: '6px 10px',
-            borderRadius: 6,
-            border: '1px solid var(--border)',
-            background: 'var(--surface)',
-            color: 'var(--text)',
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: 'pointer',
-            fontFamily: 'var(--font-ui)',
-          }}
-        >
-          {basemap === 'street' ? 'Satellite' : 'Street'}
+        <button type="button" className="dashboard-map-toggle" onClick={onBasemapToggle}>
+          {basemap === 'street' ? 'Satellite' : 'Street map'}
         </button>
       )}
     </div>
