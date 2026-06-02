@@ -1,0 +1,61 @@
+# Backend + frontend only.
+# Inference runs on the host: pip install inference-cli && inference server start
+#
+# Fast builds: make buildx-setup && make build
+# Or: docker buildx bake --load
+
+services:
+  backend:
+    image: urban-detector-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=.buildx-cache/backend
+      cache_to:
+        - type=local,dest=.buildx-cache/backend,mode=max
+    container_name: urban-backend
+    ports:
+      - "8000:8000"
+    environment:
+      MAPILLARY_ACCESS_TOKEN: ${MAPILLARY_ACCESS_TOKEN}
+      ROBOFLOW_API_KEY: ${ROBOFLOW_API_KEY}
+      INFERENCE_SERVER_URL: ${INFERENCE_SERVER_URL:-http://host.docker.internal:9001}
+      ROBOFLOW_WORKSPACE: ${ROBOFLOW_WORKSPACE:-power-house}
+      PROJECT_ID: ${PROJECT_ID:-vehicle-detection-7nnx0}
+      MODEL_VERSION: ${MODEL_VERSION:-4}
+      STREET_LIGHT_WORKSPACE: ${STREET_LIGHT_WORKSPACE:-stret-light}
+      STREET_LIGHT_PROJECT_ID: ${STREET_LIGHT_PROJECT_ID:-street-light-ci0on}
+      STREET_LIGHT_MODEL_VERSION: ${STREET_LIGHT_MODEL_VERSION:-1}
+      ENABLE_STREET_LIGHT_MODEL: ${ENABLE_STREET_LIGHT_MODEL:-true}
+      DETECTION_IOU_THRESHOLD: ${DETECTION_IOU_THRESHOLD:-0.5}
+      DETECTION_CONFIDENCE_MIN: ${DETECTION_CONFIDENCE_MIN:-0.25}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+
+  frontend:
+    image: urban-detector-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=.buildx-cache/frontend
+      cache_to:
+        - type=local,dest=.buildx-cache/frontend,mode=max
+    container_name: urban-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    restart: unless-stopped
+
+volumes:
+  frontend-node-modules:
