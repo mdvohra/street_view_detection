@@ -1,26 +1,5 @@
 import { useDetections } from '../context/DetectionContext'
-
-const CLASS_EMOJIS = {
-  Car: '🚗',
-  Tree: '🌳',
-  'Street Light': '💡',
-  Pole: '🪧',
-  Building: '🏢',
-  Motorcycle: '🏍️',
-  Person: '🚶',
-  'Traffic Signal': '🚦',
-}
-
-const CLASS_COLORS = {
-  Car: '#FF7800',
-  Tree: '#50C800',
-  'Street Light': '#00DCF0',
-  Pole: '#FF50C8',
-  Building: '#3264FF',
-  Motorcycle: '#FFC832',
-  Person: '#6432FF',
-  'Traffic Signal': '#00FFC8',
-}
+import { CLASS_COLORS, CLASS_EMOJIS } from '../constants/classes'
 
 export default function DetectionPanel() {
   const { activeDetection } = useDetections()

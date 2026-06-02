@@ -1,10 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
-import 'leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js'
+import L from './leaflet-globals.js'
+import './leaflet-plugins.js'
 import './index.css'
 import App from './App'
+import ErrorBoundary from './components/ErrorBoundary'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -15,6 +15,8 @@ L.Icon.Default.mergeOptions({
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 )

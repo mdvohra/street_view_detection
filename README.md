@@ -59,7 +59,8 @@ make up
 |-----|---------|
 | [http://localhost:5173](http://localhost:5173) | Frontend |
 | [http://localhost:8000/health](http://localhost:8000/health) | Backend health |
-| [http://localhost:8000/docs](http://localhost:8000/docs) | API docs |
+| [http://localhost:8000/docs](http://localhost:8000/docs) | API docs (includes `/batch/*`) |
+| [http://localhost:5173/dashboard](http://localhost:5173/dashboard) | Batch results dashboard |
 | [http://localhost:9001/docs](http://localhost:9001/docs) | Inference server |
 
 ### Stop
@@ -141,10 +142,23 @@ npm run dev
 
 ## Usage
 
+### Single-click detection
+
 1. Zoom into a city — green dots = Mapillary coverage.
 2. Click near a green dot → street detection → blue pin.
 3. Camera panel → **Detect Now** → orange pin (if GPS allowed).
 4. Click pins for summary; **View Full Detection** for the right panel.
+
+### Polygon batch detection
+
+1. On the map, click **Draw area** and outline a polygon over green Mapillary coverage.
+2. Click **Predict** — the backend discovers all street images inside the polygon and runs **both models** on each image.
+3. Watch progress on the map overlay; use **Cancel** to stop early (partial results are kept).
+4. Open **Batch dashboard** (link in toolbar or stats bar) to review results: swipe images, filmstrip, per-class filters, detection list.
+5. Batch data is stored on the server under `backend/data/` (SQLite + annotated JPEGs). Survives browser refresh.
+6. **Delete all** on the dashboard removes every saved batch job and image files.
+
+**Performance:** Large polygons can include hundreds of images. Each image runs two inference calls. Use **Cancel** for long runs. Optional env: `BATCH_CONCURRENCY=3` (default) limits parallel inference.
 
 ## Troubleshooting
 

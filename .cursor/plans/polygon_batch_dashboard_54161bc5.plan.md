@@ -4,28 +4,28 @@ overview: Add polygon drawing on the map, a backend async batch job that fetches
 todos:
   - id: mapillary-polygon-fetch
     content: "Add mapillary_batch.py: bbox tiling (<0.01 deg²), dedupe, point-in-polygon filter"
-    status: pending
+    status: completed
   - id: storage-sqlite
     content: Add storage.py + SQLite schema, JPEG files under backend/data/batches/, gitignore + docker volume
-    status: pending
+    status: completed
   - id: batch-api
     content: Add batch_service.py + FastAPI routes (start, status, cancel, paginated results, list, delete all/job)
-    status: pending
+    status: completed
   - id: batch-cancel
     content: Cooperative cancel via asyncio.Event — check between Mapillary tiles and before each inference; status cancelled with partial results kept
-    status: pending
+    status: completed
   - id: polygon-draw-ui
     content: Add leaflet-draw, PolygonDrawControl, Predict + progress overlay with Cancel button on MapView
-    status: pending
+    status: completed
   - id: routing-dashboard
     content: Add react-router-dom, BatchDashboard page with carousel, filmstrip, KPIs, class filter
-    status: pending
+    status: completed
   - id: delete-all-ux
     content: Wire DELETE /batch with confirmation modal on dashboard
-    status: pending
+    status: completed
   - id: docs-readme
     content: Update README with polygon batch flow, persistence path, delete-all, performance warnings
-    status: pending
+    status: completed
 isProject: false
 ---
 

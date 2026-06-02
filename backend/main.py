@@ -5,10 +5,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+import batch_service
 import detector
 import mapillary
+import storage
 
 ROOT_ENV = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=ROOT_ENV)
@@ -16,6 +19,7 @@ load_dotenv(dotenv_path=ROOT_ENV)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    storage.init_db()
     mapillary.init()
     inference_ok = await detector.health_check()
     if not inference_ok:
@@ -181,3 +185,103 @@ async def detect_camera(req: CameraDetectRequest):
         "source": "camera",
         **result,
     }
+
+
+class BatchPolygonRequest(BaseModel):
+    polygon: list[list[float]]
+
+
+@app.post("/batch/polygon")
+async def batch_polygon(req: BatchPolygonRequest):
+    if len(req.polygon) < 3:
+        raise HTTPException(status_code=400, detail="Polygon must have at least 3 points")
+    job_id = storage.create_job(req.polygon)
+    batch_service._register_cancel(job_id)
+    batch_service.start_batch_job(job_id)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/batch")
+def batch_list():
+    jobs = storage.list_jobs()
+    return {"jobs": [batch_service.job_to_response(j) for j in jobs]}
+
+
+@app.get("/batch/{job_id}")
+def batch_get(job_id: str):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return batch_service.job_to_response(job)
+
+
+@app.post("/batch/{job_id}/cancel")
+def batch_cancel(job_id: str):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    batch_service.request_cancel(job_id)
+    return {"job_id": job_id, "status": "cancelling"}
+
+
+@app.get("/batch/{job_id}/geo")
+def batch_geo(job_id: str):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    markers = storage.get_results_geo(job_id)
+    return {"job_id": job_id, "polygon": job["polygon"], "markers": markers}
+
+
+@app.get("/batch/{job_id}/results")
+def batch_results(job_id: str, offset: int = 0, limit: int = 50):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    limit = min(max(limit, 1), 100)
+    offset = max(offset, 0)
+    results = storage.get_results(job_id, offset=offset, limit=limit)
+    total = storage.count_results(job_id)
+    return {"job_id": job_id, "offset": offset, "limit": limit, "total": total, "results": results}
+
+
+@app.get("/batch/{job_id}/images/{image_id}/annotated")
+def batch_annotated_image(job_id: str, image_id: str):
+    try:
+        path = storage.annotated_file_path(job_id, image_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not path:
+        raise HTTPException(status_code=404, detail="Annotated image not found")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@app.delete("/batch")
+def batch_delete_all():
+    count = storage.delete_all_jobs()
+    return {"deleted_jobs": count}
+
+
+@app.delete("/batch/{job_id}")
+def batch_delete_one(job_id: str):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    batch_service.request_cancel(job_id)
+    storage.delete_job(job_id)
+    return {"job_id": job_id, "deleted": True}

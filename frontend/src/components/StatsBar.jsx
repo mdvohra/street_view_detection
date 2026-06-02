@@ -1,16 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useDetections } from '../context/DetectionContext'
-
-const CLASS_META = [
-  { key: 'Car', emoji: '🚗', label: 'Cars' },
-  { key: 'Tree', emoji: '🌳', label: 'Trees' },
-  { key: 'Street Light', emoji: '💡', label: 'Lights' },
-  { key: 'Pole', emoji: '🪧', label: 'Poles' },
-  { key: 'Building', emoji: '🏢', label: 'Buildings' },
-  { key: 'Motorcycle', emoji: '🏍️', label: 'Motos' },
-  { key: 'Person', emoji: '🚶', label: 'People' },
-  { key: 'Traffic Signal', emoji: '🚦', label: 'Signals' },
-]
+import { CLASS_META } from '../constants/classes'
 
 function AnimatedCount({ value }) {
   const [display, setDisplay] = useState(value)
@@ -112,7 +103,10 @@ export default function StatsBar() {
         )
       })}
 
-      <div style={{ marginLeft: 'auto', paddingLeft: 16, fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
+      <div style={{ marginLeft: 'auto', paddingLeft: 16, fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Link to="/dashboard" style={{ color: 'var(--blue)', textDecoration: 'none', fontWeight: 600 }}>
+          Batch dashboard
+        </Link>
         <span style={{ color: 'var(--muted)' }}>{markers.length} scans · </span>
         <span style={{ color: 'var(--green)', fontWeight: 600 }}>{total} total objects</span>
       </div>

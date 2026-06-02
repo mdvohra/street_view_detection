@@ -1,11 +1,14 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import toast from 'react-hot-toast'
 import { useDetections } from '../context/DetectionContext'
-import { detectStreet } from '../api'
+import { cancelBatchJob, detectStreet, getBatchJob, startBatchPolygon } from '../api'
 import MapillaryLayer from './MapillaryLayer'
 import MarkerPopup from './MarkerPopup'
+import PolygonDrawControl from './PolygonDrawControl'
+import PolygonToolbar from './PolygonToolbar'
+import BatchProgressOverlay from './BatchProgressOverlay'
 
 const makeIcon = (color, size = 14) =>
   L.divIcon({
@@ -47,9 +50,13 @@ const BASE_LAYERS = {
   },
 }
 
-function ClickHandler({ onMapClick }) {
+const TERMINAL = new Set(['completed', 'cancelled', 'failed'])
+
+function ClickHandler({ onMapClick, enabled }) {
   useMapEvents({
-    click: (e) => onMapClick(e.latlng.lat, e.latlng.lng, null),
+    click: (e) => {
+      if (enabled) onMapClick(e.latlng.lat, e.latlng.lng, null)
+    },
   })
   return null
 }
@@ -59,7 +66,59 @@ export default function MapView() {
   const [loadingMarker, setLoadingMarker] = useState(null)
   const [streetPreview, setStreetPreview] = useState(null)
   const [basemap, setBasemap] = useState('street')
+  const [polygon, setPolygon] = useState(null)
+  const [draftPoints, setDraftPoints] = useState([])
+  const [drawMode, setDrawMode] = useState(false)
+  const [batchJob, setBatchJob] = useState(null)
+  const [predicting, setPredicting] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const pollRef = useRef(null)
+  const warnedRef = useRef(false)
   const activeBase = BASE_LAYERS[basemap]
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [])
+
+  const pollJob = useCallback(
+    (jobId) => {
+      stopPolling()
+      pollRef.current = setInterval(async () => {
+        try {
+          const { data } = await getBatchJob(jobId)
+          setBatchJob(data)
+          if (data.total > 200 && !warnedRef.current) {
+            warnedRef.current = true
+            toast('Large batch — this may take a long time. You can cancel anytime.', {
+              icon: '⏳',
+              duration: 5000,
+            })
+          }
+          if (TERMINAL.has(data.status)) {
+            stopPolling()
+            setPredicting(false)
+            setCancelling(false)
+            if (data.status === 'completed') {
+              toast.success(`Batch complete — ${data.processed} images processed`, { icon: '✅' })
+            } else if (data.status === 'cancelled') {
+              toast(`Batch cancelled — ${data.processed} images saved`, { icon: '⏹️' })
+            } else if (data.status === 'failed') {
+              toast.error(data.error_message || 'Batch failed')
+            }
+          }
+        } catch (_) {
+          stopPolling()
+          setPredicting(false)
+        }
+      }, 1500)
+    },
+    [stopPolling]
+  )
+
+  useEffect(() => () => stopPolling(), [stopPolling])
 
   const runStreetDetect = useCallback(
     async (lat, lng, imageId = null) => {
@@ -95,6 +154,66 @@ export default function MapView() {
     [addDetection]
   )
 
+  const closePolygon = useCallback((ring) => {
+    if (ring.length < 3) {
+      toast.error('Need at least 3 points for a polygon')
+      return
+    }
+    setPolygon(ring)
+    setDraftPoints([])
+    setDrawMode(false)
+    toast.success('Polygon closed — click Predict to run batch detection')
+  }, [])
+
+  const handleFinishPolygon = () => {
+    closePolygon(draftPoints)
+  }
+
+  const handleAddDraftPoint = (pt) => {
+    setDraftPoints((prev) => [...prev, pt])
+  }
+
+  const handleUndoDraft = () => {
+    setDraftPoints((prev) => prev.slice(0, -1))
+  }
+
+  const handleDrawModeToggle = (on) => {
+    setDrawMode(on)
+    if (!on) setDraftPoints([])
+  }
+
+  const handleClearPolygon = () => {
+    setPolygon(null)
+    setDraftPoints([])
+    setDrawMode(false)
+  }
+
+  const handlePredict = async () => {
+    if (!polygon || polygon.length < 3) return
+    setPredicting(true)
+    setCancelling(false)
+    warnedRef.current = false
+    try {
+      const { data } = await startBatchPolygon(polygon)
+      setBatchJob({ ...data, processed: 0, total: 0, status: 'queued' })
+      pollJob(data.job_id)
+    } catch (_) {
+      toast.error('Failed to start batch. Is the backend running?')
+      setPredicting(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    if (!batchJob?.job_id) return
+    setCancelling(true)
+    try {
+      await cancelBatchJob(batchJob.job_id)
+    } catch (_) {
+      toast.error('Cancel request failed')
+      setCancelling(false)
+    }
+  }
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <MapContainer
@@ -112,7 +231,14 @@ export default function MapView() {
           maxZoom={19}
         />
         <MapillaryLayer token={mapillaryToken} basemap={basemap} />
-        <ClickHandler onMapClick={runStreetDetect} />
+        <PolygonDrawControl
+          polygon={polygon}
+          draftPoints={draftPoints}
+          drawMode={drawMode}
+          onAddPoint={handleAddDraftPoint}
+          onClosePolygon={handleFinishPolygon}
+        />
+        <ClickHandler onMapClick={runStreetDetect} enabled={!drawMode && !predicting} />
 
         {loadingMarker && <Marker position={[loadingMarker.lat, loadingMarker.lng]} icon={loadingIcon} />}
 
@@ -129,6 +255,21 @@ export default function MapView() {
           </Marker>
         ))}
       </MapContainer>
+
+      <PolygonToolbar
+        drawMode={drawMode}
+        onDrawMode={handleDrawModeToggle}
+        onClear={handleClearPolygon}
+        onPredict={handlePredict}
+        onFinish={handleFinishPolygon}
+        onUndo={handleUndoDraft}
+        hasPolygon={!!polygon && polygon.length >= 3}
+        draftCount={draftPoints.length}
+        predicting={predicting}
+        activeJobId={batchJob?.job_id}
+      />
+
+      <BatchProgressOverlay job={batchJob} onCancel={handleCancel} cancelling={cancelling} />
 
       <button
         type="button"
@@ -176,7 +317,9 @@ export default function MapView() {
           <div style={{ padding: '6px 8px', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
             Street preview
             {streetPreview.distanceM ? ` · ${streetPreview.distanceM}m` : ''}
-            {streetPreview.capturedAt ? ` · ${new Date(streetPreview.capturedAt).toLocaleDateString('en-IN')}` : ''}
+            {streetPreview.capturedAt
+              ? ` · ${new Date(streetPreview.capturedAt).toLocaleDateString('en-IN')}`
+              : ''}
           </div>
         </div>
       )}
