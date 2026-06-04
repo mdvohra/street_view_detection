@@ -62,7 +62,8 @@ function ClickHandler({ onMapClick, enabled }) {
 }
 
 export default function MapView() {
-  const { markers, mapillaryToken, addDetection, setActiveDetection } = useDetections()
+  const { markers, mapillaryToken, showMapillaryCoverage, addDetection, setActiveDetection } =
+    useDetections()
   const [loadingMarker, setLoadingMarker] = useState(null)
   const [streetPreview, setStreetPreview] = useState(null)
   const [basemap, setBasemap] = useState('street')
@@ -129,7 +130,12 @@ export default function MapView() {
           toast.error(data.message || 'Mapillary API error. Check your access token.')
           setStreetPreview(null)
         } else if (data.error) {
-          toast.error(data.message || 'No imagery here. Click on or near green coverage.')
+          toast.error(
+            data.message ||
+              (showMapillaryCoverage
+                ? 'No imagery here. Click on or near green coverage.'
+                : 'No street imagery near this location.')
+          )
           setStreetPreview(null)
         } else {
           addDetection(data)
@@ -151,7 +157,7 @@ export default function MapView() {
         setLoadingMarker(null)
       }
     },
-    [addDetection]
+    [addDetection, showMapillaryCoverage]
   )
 
   const closePolygon = useCallback((ring) => {
@@ -230,7 +236,9 @@ export default function MapView() {
           maxNativeZoom={19}
           maxZoom={19}
         />
-        <MapillaryLayer token={mapillaryToken} basemap={basemap} />
+        {showMapillaryCoverage && mapillaryToken && (
+          <MapillaryLayer token={mapillaryToken} basemap={basemap} />
+        )}
         <PolygonDrawControl
           polygon={polygon}
           draftPoints={draftPoints}
@@ -246,7 +254,7 @@ export default function MapView() {
           <Marker
             key={m.id}
             position={[m.lat, m.lng]}
-            icon={m.source === 'camera' ? CAMERA_ICON : STREET_ICON}
+            icon={m.source === 'camera' || m.source === 'upload' ? CAMERA_ICON : STREET_ICON}
             eventHandlers={{ click: () => setActiveDetection(m) }}
           >
             <Popup>

@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 
 import detector
+import geolocation
+import geolocate_batch
 import mapillary_batch
 import storage
 
@@ -143,6 +145,22 @@ async def run_batch_job(job_id: str) -> None:
             ann_path = jdir / f"{image_id}.jpg"
             _save_annotated_jpeg(result["annotated_image_b64"], ann_path)
 
+            image_size = result.get("image_size") or {}
+            iw = int(image_size.get("width") or 0)
+            ih = int(image_size.get("height") or 0)
+            detections = geolocation.enrich_detections_with_geo(
+                result.get("detections", []),
+                camera_lat=img["image_lat"],
+                camera_lng=img["image_lng"],
+                compass_angle=img.get("compass_angle", 0),
+                image_width=iw,
+                image_height=ih,
+                camera_focal_px=img.get("camera_focal_px"),
+                source_width=img.get("source_width"),
+                source_height=img.get("source_height"),
+                computed_rotation=img.get("computed_rotation"),
+            )
+
             async with counter_lock:
                 aggregate = storage.merge_counts(aggregate, result.get("counts", {}))
                 processed += 1
@@ -155,8 +173,17 @@ async def run_batch_job(job_id: str) -> None:
                     captured_at=str(img.get("captured_at", "")),
                     thumb_url=img["thumb_url"],
                     counts=result.get("counts", {}),
-                    detections=result.get("detections", []),
+                    detections=detections,
                     annotated_path=str(ann_path),
+                    compass_angle=float(img.get("compass_angle") or 0),
+                    sequence_id=str(img.get("sequence_id") or ""),
+                    image_width=iw or None,
+                    image_height=ih or None,
+                    camera_focal_px=img.get("camera_focal_px"),
+                    camera_type=str(img.get("camera_type") or ""),
+                    computed_rotation=img.get("computed_rotation"),
+                    source_width=img.get("source_width"),
+                    source_height=img.get("source_height"),
                 )
                 storage.update_job(
                     job_id,
@@ -195,6 +222,10 @@ async def run_batch_job(job_id: str) -> None:
                 processed=processed,
                 failed=failed,
             )
+            try:
+                geolocate_batch.run_geolocate_job(job_id)
+            except Exception as exc:
+                logger.exception("LOB geolocation failed for job %s: %s", job_id, exc)
     except Exception as exc:
         logger.exception("Batch job %s failed", job_id)
         storage.update_job(

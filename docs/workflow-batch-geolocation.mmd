@@ -1,0 +1,133 @@
+---
+title: Street View Detection - Batch Pipeline & Geolocation Detail
+---
+flowchart TB
+  classDef svc fill:#e1d5e7,stroke:#9673a6
+  classDef store fill:#f8cecc,stroke:#b85450
+  classDef api fill:#d5e8d4,stroke:#82b366
+  classDef fe fill:#dae8fc,stroke:#6c8ebf
+  classDef dec fill:#fff2cc,stroke:#d6b656
+
+  C5([run_batch_job from batch_service]):::svc
+
+  subgraph DISCOVER["Phase 1: Discovering"]
+    D1[Status: discovering]:::svc
+    D2[mapillary_batch.fetch_images_in_polygon]:::svc
+    D3[Subdivide bbox tiles under 0.01 deg2]:::svc
+    D4[point_in_polygon filter + dedupe]:::svc
+    D5{Cancel requested?}:::dec
+    D6{Mapillary error?}:::dec
+    D7{0 images?}:::dec
+    D1 --> D2 --> D3 --> D4 --> D5
+    D5 -->|Yes| DC[cancelled]:::store
+    D5 -->|No| D6
+    D6 -->|Yes| DF[failed]:::store
+    D6 -->|No| D7
+    D7 -->|Yes| DE[completed empty]:::store
+  end
+
+  C5 --> DISCOVER
+
+  subgraph RUN["Phase 2: Running - BATCH_CONCURRENCY parallel"]
+    R1[Status: running]:::svc
+    R2[process_one per image]:::svc
+    R3[detector.detect_from_url]:::svc
+    R4[Save annotated JPG to data/batches/job_id/]:::store
+    R5[geolocation.enrich_detections_with_geo]:::svc
+    R6[storage.insert_result + update counters]:::store
+    R7{Cancel mid-run?}:::dec
+    R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7
+    R7 -->|Yes| RC[cancelled partial results]:::store
+    R7 -->|No| R8[All images done]:::svc
+  end
+
+  D7 -->|No| RUN
+  R8 --> COMP[Status: completed]:::store
+
+  subgraph GEO_ENRICH["Per-Detection Geolocation enrich_detection_geo"]
+    G0{Valid camera lat/lng compass width?}:::dec
+    G0 -->|No| GS[Skip geo for detection]:::svc
+    G0 -->|Yes| G1{USE_3D_CAMERA_RAY and focal_px?}:::dec
+    G1 -->|Yes| G2[camera_ray.detection_geo_from_camera_ray]:::svc
+    G2 --> G3{Ray hits ground?}:::dec
+    G3 -->|Yes| G4[geo_method: camera_ray_3d]:::svc
+    G3 -->|No| G5[Bearing path fallback]:::svc
+    G1 -->|No| G5
+    G5 --> G6[detection_bearing compass + HFOV pixel offset]:::svc
+    G6 --> G7{Class has assumed height?}:::dec
+    G7 -->|Yes| G8[estimate_distance_from_bbox - bearing_size]:::svc
+    G7 -->|No| G9[DEFAULT_OBJECT_DISTANCE_M 15m - bearing_single]:::svc
+    G4 --> GOUT[geo_lat/lng bearing_deg ray_end_* geo_distance_m]:::svc
+    G8 --> GOUT
+    G9 --> GOUT
+  end
+
+  R5 --> GEO_ENRICH
+
+  subgraph GEOLOB["Phase 3: Auto LOB Triangulation geolocate_batch"]
+    L1[run_geolocate_job after batch complete]:::svc
+    L2[_backfill_mapillary_metadata per image]:::svc
+    L3[_re_enrich_results skip lob_triangulation]:::svc
+    L4[_build_lobs camera + bearing per detection]:::svc
+    L5[Group by sequence_id]:::svc
+    L6[_find_intersections geo.intersect_lob_2d]:::svc
+    L7{Support count >= LOB_MIN_VIEWS?}:::dec
+    L8{LOB angle separation >= 3 deg?}:::dec
+    L9[geo.cluster_points within 10m radius]:::svc
+    L10[Update detections geo_method lob_triangulation]:::svc
+    L11[storage.insert_object_location]:::store
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7
+    L7 -->|No| LSKIP[Keep single-view estimate]:::svc
+    L7 -->|Yes| L8 --> L9 --> L10 --> L11
+  end
+
+  COMP --> GEOLOB
+
+  subgraph DASH["Dashboard Review /dashboard/jobId"]
+    DB1[Load job + paginated results]:::fe
+    DB2[Parallel geo APIs]:::api
+    DB2a[GET /batch/id/geo - camera pins]:::api
+    DB2b[GET /batch/id/detections/geo - object estimates]:::api
+    DB2c[GET /batch/id/objects/geo - triangulated clusters]:::api
+    DB3[BatchDashboardMap layers + LOB sight lines]:::fe
+    DB4[BatchResultsTable row click sync viewer]:::fe
+    DB5[GET annotated JPEG per image]:::api
+    DB1 --> DB2 --> DB2a
+    DB2 --> DB2b
+    DB2 --> DB2c
+    DB2a --> DB3
+    DB2b --> DB3
+    DB2c --> DB3
+    DB3 --> DB4
+    DB4 --> DB5
+  end
+
+  GEOLOB --> DASH
+  L11 --> DASH
+
+  subgraph DETECTOR["detector.py YOLO Inference"]
+    Y1[POST /infer/object_detection]:::svc
+    Y2[Primary model vehicle-detection]:::svc
+    Y3[Optional Street Light model]:::svc
+    Y4[Filter CONFIDENCE_MIN + NMS IOU_THRESHOLD]:::svc
+    Y5[OpenCV annotate to base64 JPEG]:::svc
+    Y1 --> Y2
+    Y1 --> Y3
+    Y2 --> Y4
+    Y3 --> Y4
+    Y4 --> Y5
+  end
+
+  R3 --> DETECTOR
+
+  subgraph STORAGE["storage.py Persistence"]
+    S1[(batch_jobs SQLite)]:::store
+    S2[(batch_results)]:::store
+    S3[(batch_object_locations)]:::store
+    S4[(Annotated JPEG filesystem)]:::store
+  end
+
+  C4[create_job] --> S1
+  R6 --> S2
+  R4 --> S4
+  L11 --> S3

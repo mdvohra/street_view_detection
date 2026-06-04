@@ -1,0 +1,41 @@
+---
+title: Urban Street Asset Intelligence Pipeline
+config:
+  flowchart:
+    curve: linear
+    htmlLabels: true
+    padding: 20
+  theme: base
+---
+flowchart TB
+
+  subgraph PIPELINE[" "]
+    direction LR
+    S1["① AOI<br/>Area of Interest"]:::aoi
+    S2["② Imagery<br/>Mapillary · GSV"]:::imagery
+    S3["③ Detection<br/>Lights · Poles · …"]:::detect
+    S4["④ Localization<br/>Geo coordinates"]:::geo
+    S5["⑤ Asset Map<br/>Inventory layer"]:::map
+    S6["⑥ Analytics<br/>Dashboard"]:::viz
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
+  end
+
+  subgraph LEGEND["Asset focus"]
+    direction LR
+    L1[💡 Street Lights]:::chip
+    L2[🪧 Poles]:::chip
+    L3[🚦 Signals · 🚗 Vehicles · 🌳 Trees]:::chip
+  end
+
+  PIPELINE ~~~ LEGEND
+
+  classDef aoi fill:#0B3D6B,stroke:#062847,stroke-width:3px,color:#fff
+  classDef imagery fill:#0E6B7A,stroke:#084A55,stroke-width:3px,color:#fff
+  classDef detect fill:#5B2D82,stroke:#3D1D57,stroke-width:3px,color:#fff
+  classDef geo fill:#1A6B4A,stroke:#0F4A34,stroke-width:3px,color:#fff
+  classDef map fill:#B45309,stroke:#7A3806,stroke-width:3px,color:#fff
+  classDef viz fill:#1E40AF,stroke:#132B75,stroke-width:3px,color:#fff
+  classDef chip fill:#F8FAFC,stroke:#CBD5E1,stroke-width:2px,color:#334155
+
+  style PIPELINE fill:#F1F5F9,stroke:#94A3B8,stroke-width:2px,color:#0F172A
+  style LEGEND fill:#FFFFFF,stroke:#E2E8F0,stroke-width:1px

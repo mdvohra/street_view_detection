@@ -104,6 +104,9 @@ export default function StatsBar() {
       })}
 
       <div style={{ marginLeft: 'auto', paddingLeft: 16, fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Link to="/dataset" style={{ color: 'var(--blue)', textDecoration: 'none', fontWeight: 600 }}>
+          Google Street View &amp; Detection
+        </Link>
         <Link to="/dashboard" style={{ color: 'var(--blue)', textDecoration: 'none', fontWeight: 600 }}>
           Batch dashboard
         </Link>

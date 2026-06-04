@@ -3,14 +3,24 @@ import toast from 'react-hot-toast'
 import { useDetections } from '../context/DetectionContext'
 import { detectCamera } from '../api'
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export default function CameraView() {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
+  const fileInputRef = useRef(null)
   const streamRef = useRef(null)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [detecting, setDetecting] = useState(false)
-  const [capturedImage, setCapturedImage] = useState(null)
+  const [previewImage, setPreviewImage] = useState(null)
   const { addDetection } = useDetections()
 
   useEffect(() => {
@@ -44,7 +54,7 @@ export default function CameraView() {
 
   const handleOpenCamera = async () => {
     setCameraOpen(true)
-    setCapturedImage(null)
+    setPreviewImage(null)
     await startCamera()
   }
 
@@ -53,19 +63,11 @@ export default function CameraView() {
     setCameraOpen(false)
   }
 
-  const handleDetect = async () => {
-    if (!streaming || detecting) return
+  const runDetection = async (b64, source, sourceLabel) => {
     setDetecting(true)
+    setPreviewImage(b64)
 
     try {
-      const canvas = canvasRef.current
-      const video = videoRef.current
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      canvas.getContext('2d').drawImage(video, 0, 0)
-      const b64 = canvas.toDataURL('image/jpeg', 0.85)
-      setCapturedImage(b64)
-
       let lat = null
       let lng = null
       try {
@@ -79,15 +81,66 @@ export default function CameraView() {
       }
 
       const { data } = await detectCamera(b64, lat, lng)
-      addDetection(data)
+      addDetection({ ...data, source })
 
       const total = Object.values(data.counts || {}).reduce((a, b) => a + b, 0)
-      toast.success(`Camera: ${total} objects detected`, { icon: '📷' })
+      toast.success(`${sourceLabel}: ${total} objects detected`, { icon: '🔍' })
     } catch (_) {
-      toast.error('Camera detection failed.')
+      toast.error(`${sourceLabel} detection failed.`)
     } finally {
       setDetecting(false)
     }
+  }
+
+  const handleDetectFromCamera = async () => {
+    if (!streaming || detecting) return
+
+    const canvas = canvasRef.current
+    const video = videoRef.current
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    canvas.getContext('2d').drawImage(video, 0, 0)
+    const b64 = canvas.toDataURL('image/jpeg', 0.85)
+    await runDetection(b64, 'camera', 'Camera')
+  }
+
+  const handleUploadClick = () => {
+    if (detecting) return
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || detecting) return
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file (JPEG, PNG, etc.)')
+      return
+    }
+
+    const maxMb = 15
+    if (file.size > maxMb * 1024 * 1024) {
+      toast.error(`Image must be under ${maxMb} MB`)
+      return
+    }
+
+    try {
+      const b64 = await readFileAsDataUrl(file)
+      await runDetection(b64, 'upload', 'Upload')
+    } catch (_) {
+      toast.error('Could not read that image.')
+    }
+  }
+
+  const btnBase = {
+    padding: '10px 0',
+    borderRadius: 8,
+    fontFamily: 'var(--font-ui)',
+    fontWeight: 700,
+    fontSize: 13,
+    cursor: 'pointer',
+    flex: 1,
   }
 
   if (!cameraOpen) {
@@ -102,6 +155,14 @@ export default function CameraView() {
           justifyContent: 'center',
         }}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
+
         <div
           style={{
             fontSize: 11,
@@ -111,28 +172,50 @@ export default function CameraView() {
             letterSpacing: '0.08em',
           }}
         >
-          📷 Camera (optional)
+          📷 Camera or upload
         </div>
         <p style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-          Map clicks detect street photos by default. Open the camera only when you want a live capture.
+          Map clicks use street photos. Use the camera or upload your own image to run detection.
         </p>
-        <button
-          type="button"
-          onClick={handleOpenCamera}
-          style={{
-            padding: '10px 0',
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            cursor: 'pointer',
-            background: 'var(--green-dim)',
-            color: 'var(--green)',
-            fontFamily: 'var(--font-ui)',
-            fontWeight: 700,
-            fontSize: 13,
-          }}
-        >
-          Open Camera
-        </button>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            onClick={handleOpenCamera}
+            disabled={detecting}
+            style={{
+              ...btnBase,
+              border: '1px solid var(--border)',
+              background: 'var(--green-dim)',
+              color: 'var(--green)',
+              opacity: detecting ? 0.6 : 1,
+            }}
+          >
+            Open Camera
+          </button>
+          <button
+            type="button"
+            onClick={handleUploadClick}
+            disabled={detecting}
+            style={{
+              ...btnBase,
+              border: '1px solid var(--border)',
+              background: 'var(--surface2)',
+              color: 'var(--text)',
+              opacity: detecting ? 0.6 : 1,
+            }}
+          >
+            {detecting ? '⏳ Detecting…' : '📁 Upload Image'}
+          </button>
+        </div>
+
+        {previewImage && (
+          <img
+            src={previewImage}
+            alt="Last capture or upload"
+            style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border)' }}
+          />
+        )}
       </div>
     )
   }
@@ -205,28 +288,23 @@ export default function CameraView() {
 
       <button
         type="button"
-        onClick={handleDetect}
+        onClick={handleDetectFromCamera}
         disabled={!streaming || detecting}
         style={{
-          padding: '10px 0',
-          borderRadius: 8,
+          ...btnBase,
+          flex: 'none',
           border: 'none',
-          cursor: streaming && !detecting ? 'pointer' : 'default',
           background: detecting ? 'var(--surface2)' : 'var(--green)',
           color: detecting ? 'var(--muted)' : '#000',
-          fontFamily: 'var(--font-ui)',
-          fontWeight: 700,
-          fontSize: 13,
-          transition: 'all 0.2s',
-          letterSpacing: '0.02em',
+          cursor: streaming && !detecting ? 'pointer' : 'default',
         }}
       >
         {detecting ? '⏳ Detecting…' : '📸 Detect Now'}
       </button>
 
-      {capturedImage && (
+      {previewImage && (
         <img
-          src={capturedImage}
+          src={previewImage}
           alt="Captured"
           style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border)' }}
         />

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Callable
 
-from mapillary import _get_images
+from mapillary import _get_images, camera_metadata_from_image, compass_from_image, sequence_from_image
 
 MAX_BBOX_AREA_DEG2 = 0.0099  # Mapillary limit is 0.01 deg²
 BBOX_LIMIT = 2000
@@ -66,10 +66,11 @@ def _image_to_batch_info(image: dict) -> dict:
         "image_id": str(image["id"]),
         "thumb_url": thumb,
         "captured_at": image.get("captured_at", ""),
-        "compass_angle": image.get("compass_angle", 0),
-        "sequence_id": image.get("sequence_id", ""),
+        "compass_angle": compass_from_image(image),
+        "sequence_id": sequence_from_image(image),
         "image_lat": image_lat,
         "image_lng": image_lng,
+        **camera_metadata_from_image(image),
     }
 
 

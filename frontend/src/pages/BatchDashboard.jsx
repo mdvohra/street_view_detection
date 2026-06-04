@@ -5,19 +5,32 @@ import {
   annotatedImageUrl,
   cancelBatchJob,
   deleteAllBatches,
+  getBatchDetectionsGeo,
   getBatchGeo,
   getBatchJob,
+  getBatchObjectsGeo,
   getBatchResults,
   getConfig,
   listBatchJobs,
 } from '../api'
 import BatchDashboardMap from '../components/BatchDashboardMap'
+import BatchResultsTable from '../components/BatchResultsTable'
 import ImageThumbGrid from '../components/ImageThumbGrid'
 import { CLASS_COLORS, CLASS_EMOJIS, CLASS_META } from '../constants/classes'
 import '../dashboard.css'
 
 const PAGE_SIZE = 30
 const ACTIVE = new Set(['queued', 'discovering', 'running', 'cancelling'])
+
+function geoAccuracyLabel(det) {
+  if (det.geo_accuracy) return det.geo_accuracy
+  const method = det.geo_method
+  if (method === 'lob_triangulation') {
+    const n = det.geo_confidence || 0
+    return n >= 2 ? `High accuracy (${n} street views)` : 'Multi-view estimate'
+  }
+  return 'Estimated from photo'
+}
 
 function DetectionList({ detections, filterClass }) {
   const list = (detections || []).filter((d) => !filterClass || d.class === filterClass)
@@ -48,6 +61,13 @@ function DetectionList({ detections, filterClass }) {
                   style={{ width: `${det.confidence * 100}%`, background: color }}
                 />
               </div>
+              {det.geo_lat != null && (
+                <div className="dashboard-detection-geo">
+                  {Number(det.geo_lat).toFixed(6)}, {Number(det.geo_lng).toFixed(6)}
+                  {det.geo_distance_m != null && ` · ~${Number(det.geo_distance_m).toFixed(0)} m away`}
+                  <div className="dashboard-detection-accuracy">{geoAccuracyLabel(det)}</div>
+                </div>
+              )}
             </div>
           </div>
         )
@@ -60,19 +80,39 @@ function LocationMeta({ result }) {
   if (!result) return null
   const lat = result.lat
   const lng = result.lng
+  const geoDet = (result.detections || []).find((d) => d.geo_lat != null)
   return (
     <div className="dashboard-location">
       <div className="dashboard-location-title">Location</div>
       <div className="dashboard-coords">
         <div className="dashboard-coord-card">
-          <div className="dashboard-coord-label">Latitude</div>
+          <div className="dashboard-coord-label">Camera lat</div>
           <div className="dashboard-coord-value">{lat != null ? Number(lat).toFixed(6) : '—'}</div>
         </div>
         <div className="dashboard-coord-card">
-          <div className="dashboard-coord-label">Longitude</div>
+          <div className="dashboard-coord-label">Camera lng</div>
           <div className="dashboard-coord-value">{lng != null ? Number(lng).toFixed(6) : '—'}</div>
         </div>
       </div>
+      {geoDet && (
+        <div className="dashboard-coords" style={{ marginTop: 8 }}>
+          <div className="dashboard-coord-card">
+            <div className="dashboard-coord-label">Object lat</div>
+            <div className="dashboard-coord-value" style={{ color: '#f59e0b' }}>
+              {Number(geoDet.geo_lat).toFixed(6)}
+            </div>
+          </div>
+          <div className="dashboard-coord-card">
+            <div className="dashboard-coord-label">Object lng</div>
+            <div className="dashboard-coord-value" style={{ color: '#f59e0b' }}>
+              {Number(geoDet.geo_lng).toFixed(6)}
+            </div>
+          </div>
+          <div className="dashboard-detection-accuracy" style={{ marginTop: 6 }}>
+            {geoAccuracyLabel(geoDet)}
+          </div>
+        </div>
+      )}
       <div className="dashboard-meta-row">
         Image <span>{result.image_id}</span>
       </div>
@@ -99,9 +139,14 @@ export default function BatchDashboard() {
   const [job, setJob] = useState(null)
   const [results, setResults] = useState([])
   const [geoMarkers, setGeoMarkers] = useState([])
+  const [detectionMarkers, setDetectionMarkers] = useState([])
+  const [objectMarkers, setObjectMarkers] = useState([])
   const [polygon, setPolygon] = useState(null)
   const [mapillaryToken, setMapillaryToken] = useState(null)
+  const [showMapillaryCoverage, setShowMapillaryCoverage] = useState(true)
   const [basemap, setBasemap] = useState('street')
+  const [showRays, setShowRays] = useState(false)
+  const [selectedDetectionId, setSelectedDetectionId] = useState(null)
   const [index, setIndex] = useState(0)
   const [filterClass, setFilterClass] = useState(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -113,7 +158,12 @@ export default function BatchDashboard() {
   const jobId = paramJobId || job?.job_id || jobs[0]?.job_id
 
   useEffect(() => {
-    getConfig().then((r) => setMapillaryToken(r.data.mapillary_token)).catch(() => {})
+    getConfig()
+      .then((r) => {
+        setMapillaryToken(r.data.mapillary_token)
+        setShowMapillaryCoverage(r.data.show_mapillary_coverage !== false)
+      })
+      .catch(() => {})
   }, [])
 
   const loadJobs = useCallback(async () => {
@@ -148,6 +198,33 @@ export default function BatchDashboard() {
     }
   }, [])
 
+  const loadDetectionGeo = useCallback(async (id) => {
+    if (!id) return
+    try {
+      const { data } = await getBatchDetectionsGeo(id)
+      setDetectionMarkers(data.detections || [])
+    } catch (_) {
+      setDetectionMarkers([])
+    }
+  }, [])
+
+  const loadObjectGeo = useCallback(async (id) => {
+    if (!id) return
+    try {
+      const { data } = await getBatchObjectsGeo(id)
+      setObjectMarkers(data.objects || [])
+    } catch (_) {
+      setObjectMarkers([])
+    }
+  }, [])
+
+  const loadMapLayers = useCallback(
+    async (id) => {
+      await Promise.all([loadGeo(id), loadDetectionGeo(id), loadObjectGeo(id)])
+    },
+    [loadGeo, loadDetectionGeo, loadObjectGeo]
+  )
+
   const loadResults = useCallback(async (id, append = false) => {
     if (!id) return
     const offset = append ? results.length : 0
@@ -174,9 +251,9 @@ export default function BatchDashboard() {
   useEffect(() => {
     if (jobId) {
       loadResults(jobId, false)
-      loadGeo(jobId)
+      loadMapLayers(jobId)
     }
-  }, [jobId])
+  }, [jobId, loadMapLayers])
 
   useEffect(() => {
     if (!jobId || !job || !ACTIVE.has(job.status)) {
@@ -189,11 +266,14 @@ export default function BatchDashboard() {
       if (!ACTIVE.has(data.status)) {
         clearInterval(pollRef.current)
         loadResults(jobId, false)
-        loadGeo(jobId)
+        loadMapLayers(jobId)
+        if (data.status === 'completed') {
+          toast.success('Processing complete — object locations are shown on the map')
+        }
       }
     }, 1500)
     return () => clearInterval(pollRef.current)
-  }, [jobId, job?.status, loadResults, loadGeo])
+  }, [jobId, job?.status, loadResults, loadMapLayers])
 
   const filteredGeoMarkers = useMemo(() => {
     if (!filterClass) return geoMarkers
@@ -204,6 +284,16 @@ export default function BatchDashboard() {
     if (!filterClass) return results
     return results.filter((r) => (r.counts?.[filterClass] || 0) > 0)
   }, [results, filterClass])
+
+  const filteredDetectionMarkers = useMemo(() => {
+    if (!filterClass) return detectionMarkers
+    return detectionMarkers.filter((d) => d.class === filterClass)
+  }, [detectionMarkers, filterClass])
+
+  const filteredObjectMarkers = useMemo(() => {
+    if (!filterClass) return objectMarkers
+    return objectMarkers.filter((o) => o.class === filterClass)
+  }, [objectMarkers, filterClass])
 
   useEffect(() => {
     setIndex(0)
@@ -223,9 +313,28 @@ export default function BatchDashboard() {
     (imageId) => {
       const idx = filteredResults.findIndex((r) => r.image_id === imageId)
       if (idx >= 0) setIndex(idx)
+      setSelectedDetectionId(null)
     },
     [filteredResults]
   )
+
+  const handleSelectDetection = useCallback(
+    (imageId, detectionIndex) => {
+      const idx = filteredResults.findIndex((r) => r.image_id === imageId)
+      if (idx >= 0) setIndex(idx)
+      setSelectedDetectionId(`${imageId}:${detectionIndex}`)
+    },
+    [filteredResults]
+  )
+
+  const selectedObject = useMemo(() => {
+    if (!selectedDetectionId) return null
+    return objectMarkers.find((o) =>
+      (o.detection_refs || []).some(
+        (r) => `${r.image_id}:${r.detection_index}` === selectedDetectionId
+      )
+    )
+  }, [objectMarkers, selectedDetectionId])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -268,6 +377,8 @@ export default function BatchDashboard() {
       setJob(null)
       setResults([])
       setGeoMarkers([])
+      setDetectionMarkers([])
+      setObjectMarkers([])
       toast.success('All batch data deleted')
       navigate('/dashboard')
     } catch (_) {
@@ -394,19 +505,27 @@ export default function BatchDashboard() {
         ))}
       </div>
 
+      <div className="dashboard-content">
       <div className="dashboard-body">
         <section className="dashboard-panel dashboard-panel-map">
           <div className="dashboard-panel-label">Coverage map</div>
           {jobId && (
             <BatchDashboardMap
               key={jobId}
-              markers={filteredGeoMarkers}
+              cameraMarkers={filteredGeoMarkers}
+              detectionMarkers={filteredDetectionMarkers}
+              objectMarkers={filteredObjectMarkers}
               polygon={polygon}
               selectedImageId={selectedImageId}
-              onSelect={handleSelectFromMap}
+              selectedDetectionId={selectedDetectionId}
+              onSelectCamera={handleSelectFromMap}
+              onSelectDetection={handleSelectDetection}
               mapillaryToken={mapillaryToken}
+              showMapillaryCoverage={showMapillaryCoverage}
               basemap={basemap}
               onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
+              showRays={showRays}
+              onToggleRays={() => setShowRays((v) => !v)}
             />
           )}
         </section>
@@ -432,7 +551,7 @@ export default function BatchDashboard() {
               <div className="dashboard-viewer-empty">
                 {filterClass
                   ? 'No images with this class in loaded results'
-                  : 'Select a pin on the map or a thumbnail below'}
+                  : 'Click a row in the table, a map pin, or a thumbnail to preview detections'}
               </div>
             )}
             <button type="button" className="dashboard-nav-btn left" onClick={goPrev} aria-label="Previous">
@@ -456,6 +575,13 @@ export default function BatchDashboard() {
         <section className="dashboard-panel dashboard-panel-details">
           <div className="dashboard-panel-label">Details</div>
           <LocationMeta result={current} />
+          {selectedObject && (
+            <div className="dashboard-object-support">
+              Best location for {selectedObject.class} — confirmed from{' '}
+              {selectedObject.support_count} street photo
+              {selectedObject.support_count === 1 ? '' : 's'}
+            </div>
+          )}
           <div className="dashboard-detections-header">
             Detections · {current?.detections?.length || 0}
             {filterClass ? ` (${filterClass})` : ''}
@@ -468,6 +594,23 @@ export default function BatchDashboard() {
             )}
           </div>
         </section>
+      </div>
+
+      <section className="dashboard-table-panel" aria-label="Results table">
+        <div className="dashboard-panel-label">
+          Results · {filteredResults.length} row{filteredResults.length === 1 ? '' : 's'}
+          <span style={{ marginLeft: 'auto', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
+            Click a row to preview on map
+          </span>
+        </div>
+        <BatchResultsTable
+          results={filteredResults}
+          selectedIndex={displayIndex}
+          onSelect={setIndex}
+          filterClass={filterClass}
+          loadingMore={loadingMore}
+        />
+      </section>
       </div>
 
       {showDeleteConfirm && (

@@ -1,0 +1,25 @@
+---
+title: Street Light and Pole Detection — Workflow
+---
+flowchart TB
+  A([User opens the app])
+  B[Click a spot or draw a scan area on the map]
+  C[Load street photos from Mapillary]
+  D[Object detection — AI draws a box around each object]
+  E[Estimate where each object sits on the map]
+  F[Dashboard — map, labeled photos, counts by class]
+
+  A --> B --> C --> D --> E --> F
+
+  D --- CLASSES["Detection classes<br/>Primary focus: Street Lights and Poles<br/>Also: Traffic Signals, Cars, Trees, Buildings, People, Motorcycles"]
+
+  subgraph LOC["How we estimate object location"]
+    L1[Use camera GPS and which way the camera was facing]
+    L2[Use where the object appears in the photo left / center / right]
+    L3[For poles and street lights: estimate distance from typical height in the image]
+    L4[Area scans: same object in several photos — sight lines cross for a better pin]
+    L1 --> L2 --> L3 --> L4
+  end
+
+  D --> LOC
+  LOC --> E

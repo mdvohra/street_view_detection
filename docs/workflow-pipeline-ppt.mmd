@@ -1,0 +1,22 @@
+---
+title: Urban Street Asset Intelligence Pipeline
+config:
+  block:
+    padding: 12
+  theme: base
+  themeVariables:
+    fontFamily: Segoe UI, Arial, sans-serif
+    fontSize: 15px
+---
+block-beta
+  columns 3
+  s1["① AOI<br/>Study area"] s2["② Imagery<br/>Mapillary · GSV"] s3["③ Detection<br/>Lights · Poles"]
+  s4["④ Localization<br/>Coordinates"] s5["⑤ Asset Map<br/>Inventory"] s6["⑥ Analytics<br/>Dashboard"]
+  s1 --> s2 --> s3 --> s4 --> s5 --> s6
+
+  style s1 fill:#0B3D6B,stroke:#062847,color:#fff
+  style s2 fill:#0E6B7A,stroke:#084A55,color:#fff
+  style s3 fill:#5B2D82,stroke:#3D1D57,color:#fff
+  style s4 fill:#1A6B4A,stroke:#0F4A34,color:#fff
+  style s5 fill:#B45309,stroke:#7A3806,color:#fff
+  style s6 fill:#1E40AF,stroke:#132B75,color:#fff

@@ -8,15 +8,16 @@ import StatsBar from '../components/StatsBar'
 import { getConfig } from '../api'
 
 function Inner() {
-  const { setMapillaryToken, setModelInfo, setModels } = useDetections()
+  const { setMapillaryToken, setShowMapillaryCoverage, setModelInfo, setModels } = useDetections()
 
   useEffect(() => {
     getConfig().then((r) => {
       setMapillaryToken(r.data.mapillary_token)
+      setShowMapillaryCoverage(r.data.show_mapillary_coverage !== false)
       setModelInfo(r.data.model_info)
       setModels(r.data.models ?? null)
     })
-  }, [setMapillaryToken, setModelInfo, setModels])
+  }, [setMapillaryToken, setShowMapillaryCoverage, setModelInfo, setModels])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>

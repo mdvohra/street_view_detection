@@ -2,7 +2,7 @@ import { useDetections } from '../context/DetectionContext'
 import { CLASS_COLORS, CLASS_EMOJIS } from '../constants/classes'
 
 export default function DetectionPanel() {
-  const { activeDetection } = useDetections()
+  const { activeDetection, showMapillaryCoverage } = useDetections()
 
   if (!activeDetection) {
     return (
@@ -19,11 +19,19 @@ export default function DetectionPanel() {
       >
         <div style={{ fontSize: 40 }}>🗺️</div>
         <div style={{ color: 'var(--muted)', textAlign: 'center', fontSize: 13, lineHeight: 1.6 }}>
-          Zoom in until you see <span style={{ color: 'var(--green)', fontWeight: 600 }}>green coverage</span>.
+          {showMapillaryCoverage ? (
+            <>
+              Zoom in until you see{' '}
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>green coverage</span>.
+              <br />
+              Click on or near a{' '}
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>dot or line</span> to detect.
+            </>
+          ) : (
+            <>Click anywhere on the map to run street detection at that location.</>
+          )}
           <br />
-          Click on or near a <span style={{ color: 'var(--green)', fontWeight: 600 }}>dot or line</span> to detect.
-          <br />
-          <span style={{ fontSize: 12 }}>Camera panel below is optional for live capture.</span>
+          <span style={{ fontSize: 12 }}>Use camera or upload below for your own images.</span>
         </div>
       </div>
     )
@@ -49,7 +57,11 @@ export default function DetectionPanel() {
         }}
       >
         <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>
-          {d.source === 'camera' ? '📷 CAMERA' : '📡 STREET VIEW'}
+          {d.source === 'upload'
+            ? '📁 UPLOAD'
+            : d.source === 'camera'
+              ? '📷 CAMERA'
+              : '📡 STREET VIEW'}
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
           {time} · {total} objects

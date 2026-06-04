@@ -1,6 +1,29 @@
 import axios from 'axios'
 
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:8000')
+
+async function withRetry(request, { retries = 3, delayMs = 1000 } = {}) {
+  let lastError
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      return await request()
+    } catch (err) {
+      lastError = err
+      if (attempt < retries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)))
+      }
+    }
+  }
+  throw lastError
+}
+
+function apiErrorMessage(err, fallback) {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
+  if (err?.message) return err.message
+  return fallback
+}
 
 export const getConfig = () => axios.get(`${BASE}/config`)
 export const getHealth = () => axios.get(`${BASE}/health`)
@@ -16,6 +39,10 @@ export const cancelBatchJob = (jobId) => axios.post(`${BASE}/batch/${jobId}/canc
 export const getBatchResults = (jobId, offset = 0, limit = 50) =>
   axios.get(`${BASE}/batch/${jobId}/results`, { params: { offset, limit } })
 export const getBatchGeo = (jobId) => axios.get(`${BASE}/batch/${jobId}/geo`)
+export const getBatchDetectionsGeo = (jobId) =>
+  axios.get(`${BASE}/batch/${jobId}/detections/geo`)
+export const getBatchObjectsGeo = (jobId) => axios.get(`${BASE}/batch/${jobId}/objects/geo`)
+export const runBatchGeolocate = (jobId) => axios.post(`${BASE}/batch/${jobId}/geolocate`)
 export const listBatchJobs = () => axios.get(`${BASE}/batch`)
 export const deleteAllBatches = () => axios.delete(`${BASE}/batch`)
 export const deleteBatchJob = (jobId) => axios.delete(`${BASE}/batch/${jobId}`)
@@ -23,4 +50,12 @@ export const deleteBatchJob = (jobId) => axios.delete(`${BASE}/batch/${jobId}`)
 export const annotatedImageUrl = (jobId, imageId) =>
   `${BASE}/batch/${jobId}/images/${imageId}/annotated`
 
+export const getDatasetMeta = () =>
+  withRetry(() => axios.get(`${BASE}/dataset/meta`, { timeout: 30000 }))
+export const getDatasetPoints = () =>
+  withRetry(() => axios.get(`${BASE}/dataset/points`, { timeout: 120000 }))
+export const datasetImageUrl = (id) => `${BASE}/dataset/images/${id}`
+export const detectDatasetImage = (id) => axios.post(`${BASE}/dataset/images/${id}/detect`, null, { timeout: 120000 })
+
+export { apiErrorMessage }
 export const apiBase = BASE

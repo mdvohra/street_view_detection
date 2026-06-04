@@ -17,6 +17,8 @@ services:
     container_name: urban-backend
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       MAPILLARY_ACCESS_TOKEN: ${MAPILLARY_ACCESS_TOKEN}
       ROBOFLOW_API_KEY: ${ROBOFLOW_API_KEY}
@@ -30,11 +32,14 @@ services:
       ENABLE_STREET_LIGHT_MODEL: ${ENABLE_STREET_LIGHT_MODEL:-true}
       DETECTION_IOU_THRESHOLD: ${DETECTION_IOU_THRESHOLD:-0.5}
       DETECTION_CONFIDENCE_MIN: ${DETECTION_CONFIDENCE_MIN:-0.25}
+      SHOW_MAPILLARY_COVERAGE: ${SHOW_MAPILLARY_COVERAGE:-true}
+      DATASET_ROOT: /app/dataset
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data
+      - ./dataset:/app/dataset:ro
     restart: unless-stopped
 
   frontend:
@@ -50,7 +55,8 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_API_URL: /api
+      VITE_PROXY_TARGET: http://backend:8000
     depends_on:
       - backend
     volumes:

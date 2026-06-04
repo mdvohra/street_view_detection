@@ -8,8 +8,67 @@ _token = None
 
 IMAGE_FIELDS = (
     "id,thumb_1024_url,thumb_2048_url,thumb_256_url,"
-    "captured_at,compass_angle,geometry,sequence_id"
+    "captured_at,compass_angle,computed_compass_angle,geometry,sequence,"
+    "width,height,camera_parameters,camera_type,computed_rotation,make,model"
 )
+
+
+def sequence_from_image(image: dict) -> str:
+    """Mapillary Graph API returns `sequence`, not `sequence_id`, on image objects."""
+    return str(image.get("sequence_id") or image.get("sequence") or "")
+
+
+def focal_length_px(image: dict) -> float | None:
+    """OpenSfM camera_parameters[0] is focal length in pixels (original image width)."""
+    params = image.get("camera_parameters")
+    if not params or not isinstance(params, (list, tuple)) or len(params) < 1:
+        return None
+    try:
+        focal = float(params[0])
+    except (TypeError, ValueError):
+        return None
+    return focal if focal > 0 else None
+
+
+def camera_metadata_from_image(image: dict) -> dict:
+    """Extract geolocation-relevant camera fields from a Mapillary image dict."""
+    rotation = image.get("computed_rotation")
+    if rotation is not None and not isinstance(rotation, list):
+        rotation = None
+    source_w = image.get("width")
+    source_h = image.get("height")
+    try:
+        source_w = int(source_w) if source_w else None
+    except (TypeError, ValueError):
+        source_w = None
+    try:
+        source_h = int(source_h) if source_h else None
+    except (TypeError, ValueError):
+        source_h = None
+    return {
+        "camera_focal_px": focal_length_px(image),
+        "camera_type": str(image.get("camera_type") or ""),
+        "computed_rotation": rotation,
+        "source_width": source_w,
+        "source_height": source_h,
+        "make": str(image.get("make") or ""),
+        "model": str(image.get("model") or ""),
+    }
+
+
+def compass_from_image(image: dict) -> float:
+    """
+    Camera heading in degrees clockwise from north.
+
+    Default: EXIF ``compass_angle`` — better for horizontal LOB rays in practice.
+    Set ``USE_COMPUTED_COMPASS_ANGLE=true`` to prefer SfM ``computed_compass_angle``.
+    """
+    use_computed = os.getenv("USE_COMPUTED_COMPASS_ANGLE", "").lower() in ("1", "true", "yes")
+    if use_computed:
+        computed = image.get("computed_compass_angle")
+        if computed is not None:
+            return float(computed)
+    return float(image.get("compass_angle") or 0)
 
 
 def init() -> None:
@@ -44,15 +103,17 @@ def _image_to_info(image: dict, click_lat: float, click_lng: float) -> dict:
         or image.get("thumb_256_url")
         or ""
     )
+    meta = camera_metadata_from_image(image)
     return {
         "image_id": image["id"],
         "thumb_url": thumb,
         "captured_at": image.get("captured_at", ""),
-        "compass_angle": image.get("compass_angle", 0),
-        "sequence_id": image.get("sequence_id", ""),
+        "compass_angle": compass_from_image(image),
+        "sequence_id": sequence_from_image(image),
         "image_lat": image_lat,
         "image_lng": image_lng,
         "distance_m": round(_haversine_m(click_lat, click_lng, image_lat, image_lng), 1),
+        **meta,
     }
 
 

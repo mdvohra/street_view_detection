@@ -1,0 +1,86 @@
+---
+title: Street View Detection - System Overview & User Workflows
+---
+flowchart TB
+  classDef user fill:#fff2cc,stroke:#d6b656
+  classDef fe fill:#dae8fc,stroke:#6c8ebf
+  classDef api fill:#d5e8d4,stroke:#82b366
+  classDef svc fill:#e1d5e7,stroke:#9673a6
+  classDef store fill:#f8cecc,stroke:#b85450
+  classDef ext fill:#ffe6cc,stroke:#d79b00
+
+  START([User opens app]):::user
+  START --> ROUTE{Route?}
+  ROUTE -->|"/"| MAP[MapPage - MapView + DetectionPanel + CameraView]:::fe
+  ROUTE -->|"/dashboard"| DASH[BatchDashboard - Map + Table + Viewer]:::fe
+
+  subgraph INIT["Startup (Backend lifespan)"]
+    I1[storage.init_db]:::store
+    I2[mapillary.init - MAPILLARY_ACCESS_TOKEN]:::svc
+    I3[detector.health_check - Roboflow :9001]:::svc
+    I1 --> I2 --> I3
+  end
+
+  MAP --> CFG[getConfig GET /config]:::fe
+  CFG --> INIT
+
+  subgraph WF_A["Workflow A: Single Street Detection"]
+    A1[User clicks map lat/lng]:::user
+    A2[ClickHandler - image_id null]:::fe
+    A3[POST /detect/street]:::api
+    A4{image_id?}:::api
+    A4 -->|No| A5[mapillary.fetch_nearest_image 50m]:::svc
+    A5 --> A6{Bbox fallback 0.001-0.0045 deg?}:::svc
+    A4 -->|Yes| A7[mapillary.fetch_image_by_id]:::svc
+    A6 --> A8{Imagery found?}:::svc
+    A7 --> A8
+    A8 -->|No| A_ERR[Return no_imagery / mapillary_error]:::api
+    A8 -->|Yes| A9[detector.detect_from_url thumb_url]:::svc
+    A9 --> A10[geolocation.enrich_detections_with_geo]:::svc
+    A10 --> A11[Response: detections + annotated_image_b64 + geo fields]:::api
+    A11 --> A12[DetectionContext.addDetection - map marker + panel]:::fe
+    A1 --> A2 --> A3 --> A4
+  end
+
+  subgraph WF_B["Workflow B: Live Camera Detection"]
+    B1[User opens CameraView]:::user
+    B2[getUserMedia - capture canvas to base64]:::fe
+    B3{GPS available?}:::fe
+    B3 -->|Yes| B4[navigator.geolocation lat/lng]:::fe
+    B3 -->|No| B5[lat/lng omitted]:::fe
+    B4 --> B6[POST /detect/camera]:::api
+    B5 --> B6
+    B6 --> B7[detector.detect_from_base64 - NO geolocation]:::svc
+    B7 --> B8[addDetection - orange marker if GPS]:::fe
+    B1 --> B2 --> B3
+  end
+
+  subgraph WF_C["Workflow C: Batch Polygon - Phase 1 Map"]
+    C1[Draw polygon - PolygonDrawControl]:::user
+    C2[Finish - auto-close within 25m]:::fe
+    C3[POST /batch/polygon]:::api
+    C4[storage.create_job status queued]:::store
+    C5[asyncio.create_task run_batch_job]:::svc
+    C6[Poll GET /batch/id every 1.5s]:::fe
+    C1 --> C2 --> C3 --> C4 --> C5 --> C6
+  end
+
+  MAP --> WF_A
+  MAP --> WF_B
+  MAP --> WF_C
+
+  subgraph EXT["External Services"]
+    E1[(Mapillary Graph API v4)]:::ext
+    E2[(Mapillary Vector Tiles - coverage)]:::ext
+    E3[(Roboflow Inference :9001)]:::ext
+    E4[(OSM + Esri basemap tiles)]:::ext
+  end
+
+  A5 -.-> E1
+  A9 -.-> E3
+  B7 -.-> E3
+  MAP -.-> E2
+  MAP -.-> E4
+
+  C5 --> BATCH_DETAIL[[See workflow-batch-geolocation.mmd]]
+  BATCH_DETAIL --> DASH

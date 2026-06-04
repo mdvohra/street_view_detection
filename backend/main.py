@@ -8,19 +8,40 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+import base64
+
 import batch_service
+import dataset_service
 import detector
+import geolocation
+import geolocate_batch
 import mapillary
 import storage
 
-ROOT_ENV = Path(__file__).resolve().parents[1] / ".env"
-load_dotenv(dotenv_path=ROOT_ENV)
+def _load_root_env() -> None:
+    here = Path(__file__).resolve()
+    candidates = [here.parent / ".env", here.parents[1] / ".env"]
+    if len(here.parents) > 2:
+        candidates.append(here.parents[2] / ".env")
+    for env_path in candidates:
+        if env_path.is_file():
+            load_dotenv(dotenv_path=env_path)
+            return
+    load_dotenv()
+
+
+_load_root_env()
+
+
+def _env_bool(name: str, default: str = "true") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     storage.init_db()
     mapillary.init()
+    dataset_service.init()
     inference_ok = await detector.health_check()
     if not inference_ok:
         print(
@@ -104,6 +125,7 @@ def config():
 
     return {
         "mapillary_token": os.getenv("MAPILLARY_ACCESS_TOKEN"),
+        "show_mapillary_coverage": _env_bool("SHOW_MAPILLARY_COVERAGE", "true"),
         "model_info": {
             "workspace": workspace,
             "project": project,
@@ -112,6 +134,13 @@ def config():
             "universe_url": models[0]["universe_url"],
         },
         "models": models,
+        "geolocation": {
+            "horizontal_fov_deg": geolocation.HORIZONTAL_FOV_DEG,
+            "hfov_scale": geolocation.HFOV_SCALE,
+            "compass_bearing_offset_deg": geolocation.COMPASS_BEARING_OFFSET_DEG,
+            "lob_max_length_m": geolocation.LOB_MAX_LENGTH_M,
+            "use_3d_camera_ray": geolocation.USE_3D_CAMERA_RAY,
+        },
     }
 
 
@@ -156,6 +185,22 @@ async def detect_street(req: StreetDetectRequest):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Inference server error: {str(exc)}") from exc
 
+    image_size = result.get("image_size") or {}
+    iw = int(image_size.get("width") or 0)
+    ih = int(image_size.get("height") or 0)
+    detections = geolocation.enrich_detections_with_geo(
+        result.get("detections", []),
+        camera_lat=image_info["image_lat"],
+        camera_lng=image_info["image_lng"],
+        compass_angle=image_info.get("compass_angle", 0),
+        image_width=iw,
+        image_height=ih,
+        camera_focal_px=image_info.get("camera_focal_px"),
+        source_width=image_info.get("source_width"),
+        source_height=image_info.get("source_height"),
+        computed_rotation=image_info.get("computed_rotation"),
+    )
+
     return {
         "lat": req.lat,
         "lng": req.lng,
@@ -169,6 +214,7 @@ async def detect_street(req: StreetDetectRequest):
         "sequence_id": image_info["sequence_id"],
         "source": "street",
         **result,
+        "detections": detections,
     }
 
 
@@ -242,6 +288,47 @@ def batch_geo(job_id: str):
     return {"job_id": job_id, "polygon": job["polygon"], "markers": markers}
 
 
+@app.get("/batch/{job_id}/detections/geo")
+def batch_detections_geo(job_id: str):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    detections = storage.get_detections_geo(job_id)
+    return {"job_id": job_id, "detections": detections}
+
+
+@app.get("/batch/{job_id}/objects/geo")
+def batch_objects_geo(job_id: str):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    objects = storage.get_objects_geo(job_id)
+    return {"job_id": job_id, "objects": objects}
+
+
+@app.post("/batch/{job_id}/geolocate")
+def batch_geolocate(job_id: str):
+    try:
+        job = storage.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] not in ("completed", "cancelled"):
+        raise HTTPException(status_code=409, detail="Job must be finished before geolocation")
+    try:
+        stats = geolocate_batch.run_geolocate_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"job_id": job_id, **stats}
+
+
 @app.get("/batch/{job_id}/results")
 def batch_results(job_id: str, offset: int = 0, limit: int = 50):
     try:
@@ -272,6 +359,60 @@ def batch_annotated_image(job_id: str, image_id: str):
 def batch_delete_all():
     count = storage.delete_all_jobs()
     return {"deleted_jobs": count}
+
+
+@app.get("/dataset/meta")
+def dataset_meta():
+    try:
+        return dataset_service.get_meta()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/dataset/points")
+def dataset_points():
+    try:
+        return {"points": dataset_service.get_points()}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/dataset/images/{image_id}")
+def dataset_image(image_id: int):
+    try:
+        path = dataset_service.get_image_path(image_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type="image/png")
+
+
+@app.post("/dataset/images/{image_id}/detect")
+async def dataset_detect(image_id: int):
+    try:
+        point = dataset_service.get_point(image_id)
+        path = dataset_service.get_image_path(image_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    image_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+    try:
+        result = await detector.detect_from_base64(image_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Inference server error: {str(exc)}") from exc
+
+    return {
+        "id": image_id,
+        "row": point["row"],
+        "lat": point["lat"],
+        "lng": point["lng"],
+        "image_url": f"/dataset/images/{image_id}",
+        "source": "dataset",
+        **result,
+    }
 
 
 @app.delete("/batch/{job_id}")

@@ -18,6 +18,7 @@ export function DetectionProvider({ children }) {
   const [globalCounts, setGlobalCounts] = useState({ ...EMPTY_COUNTS })
   const [activeDetection, setActiveDetection] = useState(null)
   const [mapillaryToken, setMapillaryToken] = useState(null)
+  const [showMapillaryCoverage, setShowMapillaryCoverage] = useState(true)
   const [modelInfo, setModelInfo] = useState(null)
   const [models, setModels] = useState(null)
 
@@ -41,6 +42,8 @@ export function DetectionProvider({ children }) {
         activeDetection,
         mapillaryToken,
         setMapillaryToken,
+        showMapillaryCoverage,
+        setShowMapillaryCoverage,
         modelInfo,
         setModelInfo,
         models,

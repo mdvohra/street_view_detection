@@ -1,0 +1,36 @@
+---
+title: Urban Street Asset Intelligence Pipeline
+config:
+  flowchart:
+    curve: basis
+    htmlLabels: true
+    padding: 24
+    nodeSpacing: 60
+    rankSpacing: 80
+  theme: base
+  themeVariables:
+    fontFamily: Segoe UI, Helvetica Neue, Arial, sans-serif
+    fontSize: 15px
+    lineColor: "#1B3A5C"
+    primaryTextColor: "#FFFFFF"
+    primaryBorderColor: "#0F2744"
+---
+flowchart LR
+
+  S1["<b>① AOI</b><br/><font size=2>Area of Interest</font><br/><br/>Define study boundary<br/>on the interactive map"]:::aoi
+  S2["<b>② Imagery Acquisition</b><br/><font size=2>Street-Level Sources</font><br/><br/>Mapillary · Google Street View<br/>Panoramas + camera metadata"]:::imagery
+  S3["<b>③ Detection & Classification</b><br/><font size=2>Computer Vision</font><br/><br/><b>Primary assets</b><br/>Street Lights · Poles<br/><b>Also</b> Signals · Vehicles · Trees"]:::detect
+  S4["<b>④ Geospatial Localization</b><br/><font size=2>Position on Earth</font><br/><br/>Camera pose + bearing<br/>Height-based distance<br/>Multi-view triangulation"]:::geo
+  S5["<b>⑤ Asset Mapping</b><br/><font size=2>Geo Inventory</font><br/><br/>Map-ready asset layer<br/>Per-class pins & clusters"]:::map
+  S6["<b>⑥ Visualization & Analytics</b><br/><font size=2>Decision Support</font><br/><br/>Dashboard · KPIs · filters<br/>Map · imagery · exports"]:::viz
+
+  S1 ==> S2 ==> S3 ==> S4 ==> S5 ==> S6
+
+  classDef aoi fill:#0B3D6B,stroke:#062847,stroke-width:3px,color:#FFFFFF
+  classDef imagery fill:#0E6B7A,stroke:#084A55,stroke-width:3px,color:#FFFFFF
+  classDef detect fill:#5B2D82,stroke:#3D1D57,stroke-width:3px,color:#FFFFFF
+  classDef geo fill:#1A6B4A,stroke:#0F4A34,stroke-width:3px,color:#FFFFFF
+  classDef map fill:#B45309,stroke:#7A3806,stroke-width:3px,color:#FFFFFF
+  classDef viz fill:#1E40AF,stroke:#132B75,stroke-width:3px,color:#FFFFFF
+
+  linkStyle default stroke:#1B3A5C,stroke-width:3px
