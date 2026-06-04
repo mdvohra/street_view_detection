@@ -29,6 +29,7 @@ function AnimatedCount({ value }) {
 export default function StatsBar() {
   const { globalCounts, markers, modelInfo, models } = useDetections()
   const streetLightModel = models?.find((m) => m.role === 'street_light' && m.enabled)
+  const trafficSignalModel = models?.find((m) => m.role === 'traffic_signal' && m.enabled)
   const total = Object.values(globalCounts).reduce((a, b) => a + b, 0)
 
   return (
@@ -72,6 +73,11 @@ export default function StatsBar() {
                 <br />+ {streetLightModel.project} v{streetLightModel.version}
               </>
             )}
+            {trafficSignalModel && (
+              <>
+                <br />+ {trafficSignalModel.project} v{trafficSignalModel.version}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -106,6 +112,9 @@ export default function StatsBar() {
       <div style={{ marginLeft: 'auto', paddingLeft: 16, fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 12 }}>
         <Link to="/dataset" style={{ color: 'var(--blue)', textDecoration: 'none', fontWeight: 600 }}>
           Google Street View &amp; Detection
+        </Link>
+        <Link to="/gsv-continued" style={{ color: 'var(--blue)', textDecoration: 'none', fontWeight: 600 }}>
+          GSV continued
         </Link>
         <Link to="/dashboard" style={{ color: 'var(--blue)', textDecoration: 'none', fontWeight: 600 }}>
           Batch dashboard

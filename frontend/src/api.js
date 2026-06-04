@@ -57,5 +57,26 @@ export const getDatasetPoints = () =>
 export const datasetImageUrl = (id) => `${BASE}/dataset/images/${id}`
 export const detectDatasetImage = (id) => axios.post(`${BASE}/dataset/images/${id}/detect`, null, { timeout: 120000 })
 
+export const getGsvContinuedMeta = () =>
+  withRetry(() => axios.get(`${BASE}/gsv-continued/meta`, { timeout: 30000 }))
+export const getGsvContinuedPoints = () =>
+  withRetry(() => axios.get(`${BASE}/gsv-continued/points`, { timeout: 120000 }))
+export const gsvContinuedImageUrl = (id, view = 0, maxWidth = 1280) => {
+  const params = new URLSearchParams({ view: String(view) })
+  if (maxWidth) params.set('max_width', String(maxWidth))
+  return `${BASE}/gsv-continued/locations/${id}/image?${params}`
+}
+export const detectGsvContinuedLocation = (id, view = 0) =>
+  axios.post(`${BASE}/gsv-continued/locations/${id}/detect`, null, {
+    params: { view },
+    timeout: 120000,
+  })
+export const getGsvContinuedNav = (id, fromId = null) =>
+  axios.get(`${BASE}/gsv-continued/locations/${id}/nav`, {
+    params: fromId != null ? { from: fromId } : {},
+  })
+export const getGsvContinuedNearby = (lat, lng, maxDistM = 25) =>
+  axios.get(`${BASE}/gsv-continued/nearby`, { params: { lat, lng, max_dist_m: maxDistM } })
+
 export { apiErrorMessage }
 export const apiBase = BASE

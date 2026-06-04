@@ -30,16 +30,22 @@ services:
       STREET_LIGHT_PROJECT_ID: ${STREET_LIGHT_PROJECT_ID:-street-light-ci0on}
       STREET_LIGHT_MODEL_VERSION: ${STREET_LIGHT_MODEL_VERSION:-1}
       ENABLE_STREET_LIGHT_MODEL: ${ENABLE_STREET_LIGHT_MODEL:-true}
+      TRAFFIC_SIGNAL_WORKSPACE: ${TRAFFIC_SIGNAL_WORKSPACE:-power-house}
+      TRAFFIC_SIGNAL_PROJECT_ID: ${TRAFFIC_SIGNAL_PROJECT_ID:-traffic-signal-sg7ou}
+      TRAFFIC_SIGNAL_MODEL_VERSION: ${TRAFFIC_SIGNAL_MODEL_VERSION:-4}
+      ENABLE_TRAFFIC_SIGNAL_MODEL: ${ENABLE_TRAFFIC_SIGNAL_MODEL:-true}
       DETECTION_IOU_THRESHOLD: ${DETECTION_IOU_THRESHOLD:-0.5}
       DETECTION_CONFIDENCE_MIN: ${DETECTION_CONFIDENCE_MIN:-0.25}
       SHOW_MAPILLARY_COVERAGE: ${SHOW_MAPILLARY_COVERAGE:-true}
       DATASET_ROOT: /app/dataset
+      GSV_CONTINUED_ROOT: /app/Dataset_PitOrlManh
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data
       - ./dataset:/app/dataset:ro
+      - ./Dataset_PitOrlManh:/app/Dataset_PitOrlManh:ro
     restart: unless-stopped
 
   frontend:

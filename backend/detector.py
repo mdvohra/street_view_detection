@@ -22,14 +22,23 @@ ENABLE_STREET_LIGHT_MODEL = os.getenv("ENABLE_STREET_LIGHT_MODEL", "true").lower
     "true",
     "yes",
 )
+TRAFFIC_SIGNAL_PROJECT_ID = os.getenv("TRAFFIC_SIGNAL_PROJECT_ID", "traffic-signal-sg7ou")
+TRAFFIC_SIGNAL_MODEL_VERSION = os.getenv("TRAFFIC_SIGNAL_MODEL_VERSION", "4")
+ENABLE_TRAFFIC_SIGNAL_MODEL = os.getenv("ENABLE_TRAFFIC_SIGNAL_MODEL", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 IOU_THRESHOLD = float(os.getenv("DETECTION_IOU_THRESHOLD", "0.5"))
 CONFIDENCE_MIN = float(os.getenv("DETECTION_CONFIDENCE_MIN", "0.25"))
 
 ENDPOINT = f"{INFERENCE_URL}/infer/object_detection"
 PRIMARY_MODEL_ID = f"{PROJECT_ID}/{MODEL_VERSION}"
 SECONDARY_MODEL_ID = f"{STREET_LIGHT_PROJECT_ID}/{STREET_LIGHT_MODEL_VERSION}"
+TERTIARY_MODEL_ID = f"{TRAFFIC_SIGNAL_PROJECT_ID}/{TRAFFIC_SIGNAL_MODEL_VERSION}"
 
-INFERENCE_TIMEOUT = 45.0 if ENABLE_STREET_LIGHT_MODEL else 30.0
+_optional_models = int(ENABLE_STREET_LIGHT_MODEL) + int(ENABLE_TRAFFIC_SIGNAL_MODEL)
+INFERENCE_TIMEOUT = 30.0 + _optional_models * 15.0
 
 # Class colors (BGR for OpenCV)
 CLASS_COLORS = {
@@ -63,6 +72,17 @@ CLASS_ALIASES = {
     "Street Light": "Street Light",
     "light": "Street Light",
     "lights": "Street Light",
+    "traffic signal": "Traffic Signal",
+    "traffic-signal": "Traffic Signal",
+    "traffic_signal": "Traffic Signal",
+    "traffic sign": "Traffic Signal",
+    "traffic-sign": "Traffic Signal",
+    "traffic_sign": "Traffic Signal",
+    "TrafficSign": "Traffic Signal",
+    "Traffic Signal": "Traffic Signal",
+    "Traffic Sign": "Traffic Signal",
+    "signal": "Traffic Signal",
+    "signals": "Traffic Signal",
 }
 
 
@@ -94,7 +114,9 @@ async def _run_models(image_payload: dict) -> list[tuple[str, dict]]:
     """Run all enabled models in parallel; return (source_model, raw) pairs."""
     specs: list[tuple[str, str]] = [("primary", PRIMARY_MODEL_ID)]
     if ENABLE_STREET_LIGHT_MODEL:
-        specs.append(("secondary", SECONDARY_MODEL_ID))
+        specs.append(("street_light", SECONDARY_MODEL_ID))
+    if ENABLE_TRAFFIC_SIGNAL_MODEL:
+        specs.append(("traffic_signal", TERTIARY_MODEL_ID))
 
     tasks = [_call_inference(model_id, image_payload) for _, model_id in specs]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -282,14 +304,20 @@ def get_model_config() -> dict:
     """Model registry for /config endpoint."""
     workspace = os.getenv("ROBOFLOW_WORKSPACE", "power-house")
     sl_workspace = os.getenv("STREET_LIGHT_WORKSPACE", "stret-light")
+    ts_workspace = os.getenv("TRAFFIC_SIGNAL_WORKSPACE", "power-house")
     return {
         "primary_model_id": PRIMARY_MODEL_ID,
         "secondary_model_id": SECONDARY_MODEL_ID,
+        "traffic_signal_model_id": TERTIARY_MODEL_ID,
         "street_light_enabled": ENABLE_STREET_LIGHT_MODEL,
+        "traffic_signal_enabled": ENABLE_TRAFFIC_SIGNAL_MODEL,
         "workspace": workspace,
         "street_light_workspace": sl_workspace,
+        "traffic_signal_workspace": ts_workspace,
         "project": PROJECT_ID,
         "version": MODEL_VERSION,
         "street_light_project": STREET_LIGHT_PROJECT_ID,
         "street_light_version": STREET_LIGHT_MODEL_VERSION,
+        "traffic_signal_project": TRAFFIC_SIGNAL_PROJECT_ID,
+        "traffic_signal_version": TRAFFIC_SIGNAL_MODEL_VERSION,
     }

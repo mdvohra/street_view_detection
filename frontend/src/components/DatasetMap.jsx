@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
+import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
 import L from 'leaflet'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
@@ -25,7 +25,7 @@ const makeIcon = (color, size = 8) =>
   })
 
 const PIN_DEFAULT = makeIcon('#3B82F6', 8)
-const PIN_SELECTED = makeIcon('#05CB63', 14)
+const PIN_SELECTED_DEFAULT = makeIcon('#05CB63', 14)
 
 function MapResize() {
   const map = useMap()
@@ -75,9 +75,17 @@ export default function DatasetMap({
   onSelectPoint,
   basemap = 'street',
   onBasemapToggle,
+  trailPoints = [],
+  compact = false,
+  selectedPinColor = '#05CB63',
+  selectedPinSize = 14,
 }) {
   const [markersReady, setMarkersReady] = useState(false)
   const selected = points.find((p) => p.id === selectedId)
+  const pinSelected = useMemo(
+    () => makeIcon(selectedPinColor, selectedPinSize),
+    [selectedPinColor, selectedPinSize]
+  )
   const fitPoints = useMemo(
     () => points.map((p) => [p.lat, p.lng]),
     [points]
@@ -104,19 +112,38 @@ export default function DatasetMap({
         <TileLayer url={layer.url} attribution={layer.attribution} maxZoom={19} />
         <MapResize />
         <MapFitBounds points={fitPoints} resetKey={points.length} />
-        {selected && <MapFlyTo lat={selected.lat} lng={selected.lng} />}
+        {selected && <MapFlyTo lat={selected.lat} lng={selected.lng} zoom={compact ? 18 : 17} />}
+
+        {trailPoints.length > 1 && (
+          <Polyline
+            positions={trailPoints.map((p) => [p.lat, p.lng])}
+            pathOptions={{ color: '#05CB63', weight: 3, opacity: 0.85 }}
+          />
+        )}
 
         {markersReady && (
           <MarkerClusterGroup chunkedLoading maxClusterRadius={50}>
-            {points.map((p) => (
-              <Marker
-                key={p.id}
-                position={[p.lat, p.lng]}
-                icon={p.id === selectedId ? PIN_SELECTED : PIN_DEFAULT}
-                eventHandlers={{ click: () => onSelectPoint(p.id) }}
-              />
-            ))}
+            {points
+              .filter((p) => p.id !== selectedId)
+              .map((p) => (
+                <Marker
+                  key={p.id}
+                  position={[p.lat, p.lng]}
+                  icon={PIN_DEFAULT}
+                  eventHandlers={{ click: () => onSelectPoint(p.id) }}
+                />
+              ))}
           </MarkerClusterGroup>
+        )}
+
+        {markersReady && selected && (
+          <Marker
+            key={`selected-${selected.id}`}
+            position={[selected.lat, selected.lng]}
+            icon={pinSelected}
+            zIndexOffset={1000}
+            eventHandlers={{ click: () => onSelectPoint(selected.id) }}
+          />
         )}
       </MapContainer>
 

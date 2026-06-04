@@ -3,15 +3,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 import base64
 
 import batch_service
 import dataset_service
+import gsv_continued_service
 import detector
 import geolocation
 import geolocate_batch
@@ -42,6 +43,7 @@ async def lifespan(_: FastAPI):
     storage.init_db()
     mapillary.init()
     dataset_service.init()
+    gsv_continued_service.init()
     inference_ok = await detector.health_check()
     if not inference_ok:
         print(
@@ -97,6 +99,10 @@ def config():
     sl_project = cfg["street_light_project"]
     sl_version = cfg["street_light_version"]
     street_light_enabled = cfg["street_light_enabled"]
+    ts_workspace = cfg["traffic_signal_workspace"]
+    ts_project = cfg["traffic_signal_project"]
+    ts_version = cfg["traffic_signal_version"]
+    traffic_signal_enabled = cfg["traffic_signal_enabled"]
 
     models = [
         {
@@ -119,6 +125,17 @@ def config():
             "enabled": street_light_enabled,
             "universe_url": (
                 f"https://universe.roboflow.com/{sl_workspace}/{sl_project}/model/{sl_version}"
+            ),
+        },
+        {
+            "role": "traffic_signal",
+            "model_id": cfg["traffic_signal_model_id"],
+            "workspace": ts_workspace,
+            "project": ts_project,
+            "version": ts_version,
+            "enabled": traffic_signal_enabled,
+            "universe_url": (
+                f"https://universe.roboflow.com/{ts_workspace}/{ts_project}/model/{ts_version}"
             ),
         },
     ]
@@ -411,6 +428,95 @@ async def dataset_detect(image_id: int):
         "lng": point["lng"],
         "image_url": f"/dataset/images/{image_id}",
         "source": "dataset",
+        **result,
+    }
+
+
+@app.get("/gsv-continued/meta")
+def gsv_continued_meta():
+    try:
+        return gsv_continued_service.get_meta()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/gsv-continued/points")
+def gsv_continued_points():
+    try:
+        return {"points": gsv_continued_service.get_points()}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/gsv-continued/nearby")
+def gsv_continued_nearby(lat: float, lng: float, max_dist_m: float = Query(25.0, ge=1, le=100)):
+    try:
+        result = gsv_continued_service.find_nearest_location(lat, lng, max_dist_m=max_dist_m)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="No street imagery within range")
+    return result
+
+
+@app.get("/gsv-continued/locations/{location_id}/nav")
+def gsv_continued_nav(
+    location_id: int,
+    from_id: int | None = Query(None, alias="from"),
+):
+    try:
+        return gsv_continued_service.get_nav(location_id, from_id=from_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/gsv-continued/locations/{location_id}/image")
+def gsv_continued_image(
+    location_id: int,
+    view: int = Query(0, ge=0, le=5),
+    max_width: int | None = Query(None, ge=64, le=4096),
+):
+    try:
+        if max_width is not None:
+            data = gsv_continued_service.read_image_bytes(location_id, view, max_width=max_width)
+            return Response(content=data, media_type="image/jpeg")
+        path = gsv_continued_service.get_image_path(location_id, view)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@app.post("/gsv-continued/locations/{location_id}/detect")
+async def gsv_continued_detect(
+    location_id: int,
+    view: int = Query(0, ge=0, le=5),
+):
+    try:
+        loc = gsv_continued_service.get_location(location_id)
+        image_bytes = gsv_continued_service.read_image_bytes(location_id, view)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    try:
+        result = await detector.detect_from_base64(image_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Inference server error: {str(exc)}") from exc
+
+    return {
+        "id": location_id,
+        "view": view,
+        "lat": loc["lat"],
+        "lng": loc["lng"],
+        "compass": loc.get("compass"),
+        "image_url": f"/gsv-continued/locations/{location_id}/image?view={view}",
+        "source": "gsv_continued",
         **result,
     }
 
