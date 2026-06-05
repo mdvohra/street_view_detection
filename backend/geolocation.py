@@ -21,12 +21,13 @@ ASSUMED_POLE_HEIGHT_M = float(os.getenv("ASSUMED_POLE_HEIGHT_M", "8"))
 ASSUMED_STREET_LIGHT_HEIGHT_M = float(os.getenv("ASSUMED_STREET_LIGHT_HEIGHT_M", "6"))
 ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M = float(os.getenv("ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M", "5"))
 
-STATIC_GROUND_CLASSES = frozenset({"Pole", "Street Light", "Traffic Signal"})
+STATIC_GROUND_CLASSES = frozenset({"Pole", "Street Light", "Traffic Signal", "Traffic Sign"})
 
 ASSUMED_OBJECT_HEIGHT_M: dict[str, float] = {
     "Pole": ASSUMED_POLE_HEIGHT_M,
     "Street Light": ASSUMED_STREET_LIGHT_HEIGHT_M,
     "Traffic Signal": ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M,
+    "Traffic Sign": ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M,
 }
 
 def geo_accuracy_label(method: str | None, confidence: int | None = None) -> str:

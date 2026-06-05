@@ -10,6 +10,7 @@ import {
   getGsvContinuedPoints,
 } from '../api'
 import GsvContinuedImagePanel from '../components/GsvContinuedImagePanel'
+import GsvContinuedDetectionTable from '../components/GsvContinuedDetectionTable'
 import GsvStreetViewViewer from '../components/GsvStreetViewViewer'
 import DatasetMap from '../components/DatasetMap'
 import '../dashboard.css'
@@ -79,7 +80,6 @@ export default function GsvContinuedPage() {
     async (id, fromId = null, resetTrail = false) => {
       setSelectedId(id)
       setFromLocationId(fromId)
-      setDetectionResult(null)
       const nav = await loadNav(id, fromId)
       if (nav) {
         setSelectedView(nav.suggested_view ?? 0)
@@ -117,24 +117,48 @@ export default function GsvContinuedPage() {
 
   const handleViewChange = useCallback((view) => {
     setSelectedView(view)
-    setDetectionResult(null)
   }, [])
 
-  const handleRunDetection = useCallback(async () => {
-    if (selectedId == null) return
+  const resolvedView = useMemo(() => {
+    if (selectedId == null) return null
     const views = navData?.views || selectedPoint?.views || [0]
-    const view = views.includes(selectedView) ? selectedView : views[0]
-    setDetecting(true)
-    try {
-      const res = await detectGsvContinuedLocation(selectedId, view)
-      setDetectionResult(res.data)
-      toast.success('Detection complete')
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Detection failed'))
-    } finally {
-      setDetecting(false)
-    }
+    return views.includes(selectedView) ? selectedView : views[0]
   }, [selectedId, selectedView, navData, selectedPoint])
+
+  useEffect(() => {
+    if (selectedId == null || resolvedView == null) return
+
+    const controller = new AbortController()
+    let cancelled = false
+
+    async function runDetection() {
+      setDetecting(true)
+      try {
+        const res = await detectGsvContinuedLocation(selectedId, resolvedView, {
+          signal: controller.signal,
+        })
+        if (!cancelled) {
+          setDetectionResult(res.data)
+        }
+      } catch (err) {
+        if (cancelled || controller.signal.aborted || err?.code === 'ERR_CANCELED') {
+          return
+        }
+        toast.error(apiErrorMessage(err, 'Detection failed'))
+      } finally {
+        if (!cancelled) {
+          setDetecting(false)
+        }
+      }
+    }
+
+    runDetection()
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [selectedId, resolvedView])
 
   const trailPoints = useMemo(
     () =>
@@ -248,7 +272,17 @@ export default function GsvContinuedPage() {
                 onNavigate={handleNavigate}
                 onForwardClickZone={() => handleNavigate('forward')}
               />
-              <div style={{ flex: '0 0 auto', maxHeight: '38%', minHeight: 120, borderTop: '1px solid var(--border)' }}>
+              <div
+                style={{
+                  flex: '0 0 auto',
+                  maxHeight: '45%',
+                  minHeight: 160,
+                  borderTop: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minWidth: 0,
+                }}
+              >
                 <GsvContinuedImagePanel
                   selectedId={selectedId}
                   point={selectedPoint}
@@ -257,7 +291,12 @@ export default function GsvContinuedPage() {
                   onViewChange={handleViewChange}
                   detectionResult={detectionResult}
                   detecting={detecting}
-                  onRunDetection={handleRunDetection}
+                />
+                <GsvContinuedDetectionTable
+                  detectionResult={detectionResult}
+                  detecting={detecting}
+                  cameraLat={selectedPoint.lat}
+                  cameraLng={selectedPoint.lng}
                 />
               </div>
             </>

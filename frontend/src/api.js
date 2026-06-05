@@ -66,11 +66,14 @@ export const gsvContinuedImageUrl = (id, view = 0, maxWidth = 1280) => {
   if (maxWidth) params.set('max_width', String(maxWidth))
   return `${BASE}/gsv-continued/locations/${id}/image?${params}`
 }
-export const detectGsvContinuedLocation = (id, view = 0) =>
+export const detectGsvContinuedLocation = (id, view = 0, options = {}) =>
   axios.post(`${BASE}/gsv-continued/locations/${id}/detect`, null, {
     params: { view },
-    timeout: 120000,
+    timeout: 150000,
+    signal: options.signal,
   })
+export const getGsvContinuedModelsHealth = () =>
+  axios.get(`${BASE}/gsv-continued/models/health`, { timeout: 150000 })
 export const getGsvContinuedNav = (id, fromId = null) =>
   axios.get(`${BASE}/gsv-continued/locations/${id}/nav`, {
     params: fromId != null ? { from: fromId } : {},

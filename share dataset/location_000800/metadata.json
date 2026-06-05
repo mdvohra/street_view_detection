@@ -1,0 +1,37 @@
+{
+  "id": 800,
+  "lat": 40.440333,
+  "lng": -79.9993,
+  "compass": 114.37,
+  "views": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "part": "part1",
+  "nav": {
+    "forward": 801,
+    "backward": 799,
+    "left": null,
+    "right": null
+  },
+  "view_heading_deg": {
+    "0": 114.4,
+    "1": 174.4,
+    "2": 234.4,
+    "3": 294.4,
+    "4": 354.4,
+    "5": 54.4
+  },
+  "filenames": {
+    "0": "view_0.jpg",
+    "1": "view_1.jpg",
+    "2": "view_2.jpg",
+    "3": "view_3.jpg",
+    "4": "view_4.jpg",
+    "5": "view_5.jpg"
+  }
+}

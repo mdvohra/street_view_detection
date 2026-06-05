@@ -151,6 +151,7 @@ def config():
             "universe_url": models[0]["universe_url"],
         },
         "models": models,
+        "gsv_continued_models": cfg.get("gsv_continued_models", []),
         "geolocation": {
             "horizontal_fov_deg": geolocation.HORIZONTAL_FOV_DEG,
             "hfov_scale": geolocation.HFOV_SCALE,
@@ -432,6 +433,32 @@ async def dataset_detect(image_id: int):
     }
 
 
+@app.get("/gsv-continued/models/health")
+async def gsv_continued_models_health():
+    inference_ok = await detector.health_check()
+    try:
+        probes = await detector.probe_models()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Model probe failed: {str(exc)}"
+        ) from exc
+
+    ok_count = sum(1 for p in probes if p.get("status") == "ok")
+    failed_count = sum(1 for p in probes if p.get("status") == "failed")
+    return {
+        "inference_server": "connected" if inference_ok else "disconnected",
+        "inference_url": os.getenv("INFERENCE_SERVER_URL"),
+        "models": probes,
+        "summary": {
+            "total": len(probes),
+            "ok": ok_count,
+            "failed": failed_count,
+        },
+    }
+
+
 @app.get("/gsv-continued/meta")
 def gsv_continued_meta():
     try:
@@ -505,9 +532,22 @@ async def gsv_continued_detect(
 
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     try:
-        result = await detector.detect_from_base64(image_b64)
+        result = await detector.detect_gsv_continued_from_base64(image_b64)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Inference server error: {str(exc)}") from exc
+
+    image_size = result.get("image_size") or {}
+    iw = int(image_size.get("width") or 0)
+    ih = int(image_size.get("height") or 0)
+    compass_angle = gsv_continued_service.view_heading(float(loc.get("compass") or 0), view)
+    detections = geolocation.enrich_detections_with_geo(
+        result.get("detections", []),
+        camera_lat=loc["lat"],
+        camera_lng=loc["lng"],
+        compass_angle=compass_angle,
+        image_width=iw,
+        image_height=ih,
+    )
 
     return {
         "id": location_id,
@@ -515,9 +555,11 @@ async def gsv_continued_detect(
         "lat": loc["lat"],
         "lng": loc["lng"],
         "compass": loc.get("compass"),
+        "view_heading": compass_angle,
         "image_url": f"/gsv-continued/locations/{location_id}/image?view={view}",
         "source": "gsv_continued",
         **result,
+        "detections": detections,
     }
 
 

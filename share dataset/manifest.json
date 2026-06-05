@@ -1,0 +1,221 @@
+{
+  "description": "Share package for manager review",
+  "multi_view_locations": {
+    "source": "D:\\Street_view_detection\\Dataset_PitOrlManh",
+    "count": 5,
+    "location_ids": [
+      1,
+      200,
+      400,
+      600,
+      800
+    ],
+    "views_per_location": 6,
+    "folders": [
+      "location_000001",
+      "location_000200",
+      "location_000400",
+      "location_000600",
+      "location_000800"
+    ]
+  },
+  "single_view_points": {
+    "source": "D:\\Street_view_detection\\dataset",
+    "count": 5,
+    "point_ids": [
+      0,
+      2500,
+      5000,
+      7500,
+      9999
+    ],
+    "folder": "single_view_from_dataset"
+  },
+  "locations": [
+    {
+      "id": 1,
+      "lat": 40.440309,
+      "lng": -80.0,
+      "compass": 115.74,
+      "views": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "part": "part1",
+      "nav": {
+        "forward": null,
+        "backward": null,
+        "left": 6,
+        "right": null
+      },
+      "view_heading_deg": {
+        "0": 115.7,
+        "1": 175.7,
+        "2": 235.7,
+        "3": 295.7,
+        "4": 355.7,
+        "5": 55.7
+      },
+      "filenames": {
+        "0": "view_0.jpg",
+        "1": "view_1.jpg",
+        "2": "view_2.jpg",
+        "3": "view_3.jpg",
+        "4": "view_4.jpg",
+        "5": "view_5.jpg"
+      }
+    },
+    {
+      "id": 200,
+      "lat": 40.438916,
+      "lng": -79.9978,
+      "compass": 110.08,
+      "views": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "part": "part1",
+      "nav": {
+        "forward": 201,
+        "backward": 199,
+        "left": 626,
+        "right": null
+      },
+      "view_heading_deg": {
+        "0": 110.1,
+        "1": 170.1,
+        "2": 230.1,
+        "3": 290.1,
+        "4": 350.1,
+        "5": 50.1
+      },
+      "filenames": {
+        "0": "view_0.jpg",
+        "1": "view_1.jpg",
+        "2": "view_2.jpg",
+        "3": "view_3.jpg",
+        "4": "view_4.jpg",
+        "5": "view_5.jpg"
+      }
+    },
+    {
+      "id": 400,
+      "lat": 40.443815,
+      "lng": -79.9979,
+      "compass": 65.72,
+      "views": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "part": "part1",
+      "nav": {
+        "forward": 401,
+        "backward": 399,
+        "left": null,
+        "right": null
+      },
+      "view_heading_deg": {
+        "0": 65.7,
+        "1": 125.7,
+        "2": 185.7,
+        "3": 245.7,
+        "4": 305.7,
+        "5": 5.7
+      },
+      "filenames": {
+        "0": "view_0.jpg",
+        "1": "view_1.jpg",
+        "2": "view_2.jpg",
+        "3": "view_3.jpg",
+        "4": "view_4.jpg",
+        "5": "view_5.jpg"
+      }
+    },
+    {
+      "id": 600,
+      "lat": 40.43917,
+      "lng": -79.9992,
+      "compass": 26.09,
+      "views": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "part": "part1",
+      "nav": {
+        "forward": 601,
+        "backward": 599,
+        "left": null,
+        "right": null
+      },
+      "view_heading_deg": {
+        "0": 26.1,
+        "1": 86.1,
+        "2": 146.1,
+        "3": 206.1,
+        "4": 266.1,
+        "5": 326.1
+      },
+      "filenames": {
+        "0": "view_0.jpg",
+        "1": "view_1.jpg",
+        "2": "view_2.jpg",
+        "3": "view_3.jpg",
+        "4": "view_4.jpg",
+        "5": "view_5.jpg"
+      }
+    },
+    {
+      "id": 800,
+      "lat": 40.440333,
+      "lng": -79.9993,
+      "compass": 114.37,
+      "views": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "part": "part1",
+      "nav": {
+        "forward": 801,
+        "backward": 799,
+        "left": null,
+        "right": null
+      },
+      "view_heading_deg": {
+        "0": 114.4,
+        "1": 174.4,
+        "2": 234.4,
+        "3": 294.4,
+        "4": 354.4,
+        "5": 54.4
+      },
+      "filenames": {
+        "0": "view_0.jpg",
+        "1": "view_1.jpg",
+        "2": "view_2.jpg",
+        "3": "view_3.jpg",
+        "4": "view_4.jpg",
+        "5": "view_5.jpg"
+      }
+    }
+  ]
+}
