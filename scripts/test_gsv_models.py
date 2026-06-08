@@ -10,6 +10,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(dotenv_path=ROOT / ".env")
+except ImportError:
+    pass
+
 import detector  # noqa: E402
 
 

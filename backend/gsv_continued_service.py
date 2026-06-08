@@ -31,6 +31,24 @@ def _resolve_root() -> Path:
 
 GSV_CONTINUED_ROOT = _resolve_root()
 
+# UCF PitOrlManh: compass in .mat = view 4 heading; side views 1–4 are 90° apart.
+SIDE_VIEWS = (1, 2, 3, 4)
+PANO_SIDE_VIEWS = SIDE_VIEWS
+OVERLAY_VIEW = 0
+SKY_VIEW = 5
+SIDE_VIEW_OFFSET_DEG = {4: 0, 3: 90, 2: 180, 1: 270}
+_SIDE_VIEW_FOR_BEARING = (4, 3, 2, 1)
+VIEW_LABELS = {
+    0: "Overlay",
+    1: "Side 1",
+    2: "Side 2",
+    3: "Side 3",
+    4: "Side 4",
+    5: "Sky",
+}
+
+GSV_COMPASS_CCW = os.getenv("GSV_COMPASS_CCW", "true").lower() not in ("0", "false", "no")
+
 _index: dict | None = None
 _by_id: dict[int, dict] | None = None
 _bounds: dict | None = None
@@ -84,15 +102,36 @@ def dist_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return math.hypot(dlat, dlng)
 
 
-def view_for_bearing(compass: float, bearing: float) -> int:
-    """Map geographic bearing to view index (6 views, 60 deg apart; view 0 = compass)."""
-    delta = (bearing - compass) % 360.0
-    view = int(round(delta / 60.0)) % 6
-    return view
+def normalize_compass(compass_raw: float) -> float:
+    """Convert UCF mat compass to clockwise-from-north bearing when GSV_COMPASS_CCW=true."""
+    if GSV_COMPASS_CCW:
+        return (360.0 - float(compass_raw)) % 360.0
+    return float(compass_raw) % 360.0
 
 
-def view_heading(compass: float, view: int) -> float:
-    return (compass + view * 60.0) % 360.0
+def view_heading(compass_raw: float, view: int) -> float | None:
+    """Absolute bearing for side views 1–4; None for overlay (0) and sky (5)."""
+    if view in (OVERLAY_VIEW, SKY_VIEW):
+        return None
+    offset = SIDE_VIEW_OFFSET_DEG.get(view)
+    if offset is None:
+        return None
+    return (normalize_compass(compass_raw) + offset) % 360.0
+
+
+def side_view_for_bearing(compass_raw: float, bearing: float) -> int:
+    """Pick side view 1–4 whose heading best matches geographic bearing."""
+    base = normalize_compass(compass_raw)
+    delta = (bearing - base) % 360.0
+    idx = int(round(delta / 90.0)) % 4
+    return _SIDE_VIEW_FOR_BEARING[idx]
+
+
+def _default_side_view(views: list[int]) -> int:
+    for v in SIDE_VIEWS:
+        if v in views:
+            return v
+    return views[0] if views else 4
 
 
 def _default_nav() -> dict[str, int | None]:
@@ -105,13 +144,19 @@ def get_nav(location_id: int, from_id: int | None = None) -> dict:
     compass = float(loc.get("compass") or 0)
     views = loc.get("views") or [0]
 
-    suggested_view = 0
+    suggested_view = _default_side_view(views)
     if from_id is not None and from_id in (_by_id or {}):
         prev = _by_id[from_id]
         brg = bearing_deg(prev["lat"], prev["lng"], loc["lat"], loc["lng"])
-        suggested_view = view_for_bearing(compass, brg)
-        if suggested_view not in views:
-            suggested_view = views[0]
+        candidate = side_view_for_bearing(compass, brg)
+        if candidate in views:
+            suggested_view = candidate
+
+    view_heading_map: dict[int, float] = {}
+    for v in views:
+        h = view_heading(compass, v)
+        if h is not None:
+            view_heading_map[v] = round(h, 1)
 
     return {
         "id": location_id,
@@ -121,7 +166,11 @@ def get_nav(location_id: int, from_id: int | None = None) -> dict:
         "views": views,
         "nav": nav,
         "suggested_view": suggested_view,
-        "view_heading": {v: round(view_heading(compass, v), 1) for v in views},
+        "view_heading": view_heading_map,
+        "side_views": list(SIDE_VIEWS),
+        "overlay_view": OVERLAY_VIEW,
+        "sky_view": SKY_VIEW,
+        "view_labels": VIEW_LABELS,
     }
 
 
@@ -186,6 +235,13 @@ def get_location(location_id: int) -> dict:
     if location_id not in _by_id:
         raise ValueError(f"Invalid GSV continued location id: {location_id}")
     return _by_id[location_id]
+
+
+def pano_side_views_for_location(location_id: int) -> list[int]:
+    """Return available horizontal side views in order 1→4 for panorama stitching."""
+    loc = get_location(location_id)
+    views = loc.get("views") or []
+    return [v for v in PANO_SIDE_VIEWS if v in views]
 
 
 def get_image_path(location_id: int, view: int) -> Path:

@@ -4,6 +4,7 @@ import MarkerClusterGroup from 'react-leaflet-cluster'
 import L from 'leaflet'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
+import { detectionEmoji, makeDetectionSymbolIcon } from '../lib/detectionMapIcons'
 
 const BASE_LAYERS = {
   street: {
@@ -79,6 +80,10 @@ export default function DatasetMap({
   compact = false,
   selectedPinColor = '#05CB63',
   selectedPinSize = 14,
+  detectionMarkers = [],
+  selectedDetectionId,
+  onSelectDetection,
+  showSessionLegend = false,
 }) {
   const [markersReady, setMarkersReady] = useState(false)
   const selected = points.find((p) => p.id === selectedId)
@@ -86,10 +91,24 @@ export default function DatasetMap({
     () => makeIcon(selectedPinColor, selectedPinSize),
     [selectedPinColor, selectedPinSize]
   )
-  const fitPoints = useMemo(
-    () => points.map((p) => [p.lat, p.lng]),
-    [points]
-  )
+  const fitPoints = useMemo(() => {
+    const pts = points.map((p) => [p.lat, p.lng])
+    detectionMarkers.forEach((d) => {
+      if (d.lat != null && d.lng != null) pts.push([d.lat, d.lng])
+    })
+    return pts
+  }, [points, detectionMarkers])
+
+  const legendClasses = useMemo(() => {
+    const seen = new Set()
+    const items = []
+    for (const d of detectionMarkers) {
+      if (!d.class || seen.has(d.class)) continue
+      seen.add(d.class)
+      items.push(d.class)
+    }
+    return items
+  }, [detectionMarkers])
 
   const center = useMemo(() => {
     if (selected) return [selected.lat, selected.lng]
@@ -145,6 +164,21 @@ export default function DatasetMap({
             eventHandlers={{ click: () => onSelectPoint(selected.id) }}
           />
         )}
+
+        {detectionMarkers.map((d) => {
+          const selected = d.detection_id === selectedDetectionId
+          return (
+            <Marker
+              key={d.detection_id}
+              position={[d.lat, d.lng]}
+              icon={makeDetectionSymbolIcon(d.class, selected)}
+              zIndexOffset={selected ? 900 : 500}
+              eventHandlers={{
+                click: () => onSelectDetection?.(d.detection_id),
+              }}
+            />
+          )
+        })}
       </MapContainer>
 
       {onBasemapToggle && (
@@ -152,6 +186,20 @@ export default function DatasetMap({
           <button type="button" className="dashboard-map-toggle" onClick={onBasemapToggle}>
             {basemap === 'street' ? 'Satellite' : 'Street map'}
           </button>
+        </div>
+      )}
+
+      {showSessionLegend && detectionMarkers.length > 0 && (
+        <div className="dashboard-map-legend">
+          <span><i className="legend-dot camera" /> Camera</span>
+          {legendClasses.map((cls) => (
+            <span key={cls}>
+              <span className="legend-symbol" aria-hidden="true">
+                {detectionEmoji(cls)}
+              </span>
+              {cls}
+            </span>
+          ))}
         </div>
       )}
     </div>

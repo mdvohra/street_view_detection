@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 INFERENCE_URL = os.getenv("INFERENCE_SERVER_URL", "http://localhost:9001")
 API_KEY = os.getenv("ROBOFLOW_API_KEY")
-# When false, omit api_key from requests — use ROBOFLOW_API_KEY on the inference server container.
-SEND_API_KEY = os.getenv("INFERENCE_SEND_API_KEY", "false").lower() in (
+# true = send ROBOFLOW_API_KEY on each inference request (required unless inference server has its own key)
+SEND_API_KEY = os.getenv("INFERENCE_SEND_API_KEY", "true").lower() in (
     "1",
     "true",
     "yes",
@@ -52,6 +52,22 @@ ENABLE_GSV_TRAFFIC_SIGNS = os.getenv("ENABLE_GSV_TRAFFIC_SIGNS", "true").lower()
     "true",
     "yes",
 )
+GSV_TRAFFIC_LIGHT_1WDOF_PROJECT_ID = os.getenv(
+    "GSV_TRAFFIC_LIGHT_1WDOF_PROJECT_ID", "traffic-light-1wdof"
+)
+GSV_TRAFFIC_LIGHT_1WDOF_MODEL_VERSION = os.getenv("GSV_TRAFFIC_LIGHT_1WDOF_MODEL_VERSION", "3")
+ENABLE_GSV_TRAFFIC_LIGHT_1WDOF = os.getenv("ENABLE_GSV_TRAFFIC_LIGHT_1WDOF", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+GSV_STREET_ASSETS_3L0E9T_PROJECT_ID = os.getenv("GSV_STREET_ASSETS_3L0E9T_PROJECT_ID", "3-l0e9t")
+GSV_STREET_ASSETS_3L0E9T_MODEL_VERSION = os.getenv("GSV_STREET_ASSETS_3L0E9T_MODEL_VERSION", "14")
+ENABLE_GSV_STREET_ASSETS_3L0E9T = os.getenv("ENABLE_GSV_STREET_ASSETS_3L0E9T", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 IOU_THRESHOLD = float(os.getenv("DETECTION_IOU_THRESHOLD", "0.5"))
 CONFIDENCE_MIN = float(os.getenv("DETECTION_CONFIDENCE_MIN", "0.25"))
 # GSV Continued: drop pole/light/sign boxes covering more than this fraction of the image
@@ -65,6 +81,12 @@ SECONDARY_MODEL_ID = f"{STREET_LIGHT_PROJECT_ID}/{STREET_LIGHT_MODEL_VERSION}"
 TERTIARY_MODEL_ID = f"{TRAFFIC_SIGNAL_PROJECT_ID}/{TRAFFIC_SIGNAL_MODEL_VERSION}"
 GSV_PK0ZZ_MODEL_ID = f"{GSV_STREET_LIGHT_PK0ZZ_PROJECT_ID}/{GSV_STREET_LIGHT_PK0ZZ_MODEL_VERSION}"
 GSV_TRAFFIC_SIGNS_MODEL_ID = f"{GSV_TRAFFIC_SIGNS_PROJECT_ID}/{GSV_TRAFFIC_SIGNS_MODEL_VERSION}"
+GSV_TRAFFIC_LIGHT_1WDOF_MODEL_ID = (
+    f"{GSV_TRAFFIC_LIGHT_1WDOF_PROJECT_ID}/{GSV_TRAFFIC_LIGHT_1WDOF_MODEL_VERSION}"
+)
+GSV_STREET_ASSETS_3L0E9T_MODEL_ID = (
+    f"{GSV_STREET_ASSETS_3L0E9T_PROJECT_ID}/{GSV_STREET_ASSETS_3L0E9T_MODEL_VERSION}"
+)
 
 _optional_models = int(ENABLE_STREET_LIGHT_MODEL) + int(ENABLE_TRAFFIC_SIGNAL_MODEL)
 INFERENCE_TIMEOUT = 30.0 + _optional_models * 15.0
@@ -80,6 +102,18 @@ CLASS_COLORS = {
     "Person": (100, 50, 255),
     "Traffic Signal": (0, 255, 200),
     "Traffic Sign": (0, 180, 255),
+    "Truck": (50, 100, 200),
+    "Bus": (40, 80, 180),
+    "Bicycle": (100, 200, 100),
+    "Train": (120, 120, 180),
+    "Bench": (140, 100, 80),
+    "Fire Hydrant": (0, 100, 255),
+    "Potted Plant": (60, 180, 60),
+    "Dustbin": (100, 100, 100),
+    "Bollards": (180, 180, 80),
+    "Garbage Container": (90, 90, 140),
+    "Stairs": (160, 140, 120),
+    "Street Railing": (200, 160, 140),
 }
 
 CLASS_EMOJIS = {
@@ -92,6 +126,18 @@ CLASS_EMOJIS = {
     "Person": "🚶",
     "Traffic Signal": "🚦",
     "Traffic Sign": "🛑",
+    "Truck": "🚚",
+    "Bus": "🚌",
+    "Bicycle": "🚲",
+    "Train": "🚆",
+    "Bench": "🪑",
+    "Fire Hydrant": "🧯",
+    "Potted Plant": "🪴",
+    "Dustbin": "🗑️",
+    "Bollards": "🔶",
+    "Garbage Container": "♻️",
+    "Stairs": "🪜",
+    "Street Railing": "🚧",
 }
 
 CLASS_ALIASES = {
@@ -118,6 +164,51 @@ CLASS_ALIASES = {
     "Traffic Signal": "Traffic Signal",
     "signal": "Traffic Signal",
     "signals": "Traffic Signal",
+    "traffic light": "Traffic Signal",
+    "traffic-light": "Traffic Signal",
+    "traffic_light": "Traffic Signal",
+    "traffic lights": "Traffic Signal",
+    "green_light": "Traffic Signal",
+    "green-traffic-lights": "Traffic Signal",
+    "red_light": "Traffic Signal",
+    "red-traffic-lights": "Traffic Signal",
+    "traffic-light-red": "Traffic Signal",
+    "yellow_light": "Traffic Signal",
+    "yellow-light": "Traffic Signal",
+    "yellow-traffic-lights": "Traffic Signal",
+    "car": "Car",
+    "motorcycle": "Motorcycle",
+    "person": "Person",
+    "tree trunk": "Tree",
+    "tree_trunk": "Tree",
+    "truck": "Truck",
+    "bus": "Bus",
+    "bicycle": "Bicycle",
+    "train": "Train",
+    "bench": "Bench",
+    "fire hydrant": "Fire Hydrant",
+    "fire_hydrant": "Fire Hydrant",
+    "potted plant": "Potted Plant",
+    "potted_plant": "Potted Plant",
+    "dustbin": "Dustbin",
+    "Dustbin": "Dustbin",
+    "bollards": "Bollards",
+    "Bollards": "Bollards",
+    "garbage container": "Garbage Container",
+    "garbage_container": "Garbage Container",
+    "stairs": "Stairs",
+    "Stairs": "Stairs",
+    "street railing": "Street Railing",
+    "street_railing": "Street Railing",
+    "Truck": "Truck",
+    "Bus": "Bus",
+    "Bicycle": "Bicycle",
+    "Train": "Train",
+    "Bench": "Bench",
+    "Fire Hydrant": "Fire Hydrant",
+    "Potted Plant": "Potted Plant",
+    "Garbage Container": "Garbage Container",
+    "Street Railing": "Street Railing",
 }
 
 
@@ -161,7 +252,7 @@ def _default_model_specs() -> list[tuple[str, str]]:
 
 
 def _gsv_continued_model_specs() -> list[tuple[str, str]]:
-    """GSV Continued page: all five models in parallel."""
+    """GSV Continued page: all seven models in parallel."""
     specs: list[tuple[str, str]] = [("primary", PRIMARY_MODEL_ID)]
     if ENABLE_STREET_LIGHT_MODEL:
         specs.append(("street_light_ci0on", SECONDARY_MODEL_ID))
@@ -171,6 +262,10 @@ def _gsv_continued_model_specs() -> list[tuple[str, str]]:
         specs.append(("traffic_signal", TERTIARY_MODEL_ID))
     if ENABLE_GSV_TRAFFIC_SIGNS:
         specs.append(("traffic_signs", GSV_TRAFFIC_SIGNS_MODEL_ID))
+    if ENABLE_GSV_TRAFFIC_LIGHT_1WDOF:
+        specs.append(("traffic_light_1wdof", GSV_TRAFFIC_LIGHT_1WDOF_MODEL_ID))
+    if ENABLE_GSV_STREET_ASSETS_3L0E9T:
+        specs.append(("street_assets_3l0e9t", GSV_STREET_ASSETS_3L0E9T_MODEL_ID))
     return specs
 
 
@@ -216,6 +311,24 @@ def get_gsv_continued_model_registry() -> list[dict]:
             {
                 "source": "traffic_signs",
                 "model_id": GSV_TRAFFIC_SIGNS_MODEL_ID,
+                "enabled": True,
+                "gsv_only": True,
+            }
+        )
+    if ENABLE_GSV_TRAFFIC_LIGHT_1WDOF:
+        entries.append(
+            {
+                "source": "traffic_light_1wdof",
+                "model_id": GSV_TRAFFIC_LIGHT_1WDOF_MODEL_ID,
+                "enabled": True,
+                "gsv_only": True,
+            }
+        )
+    if ENABLE_GSV_STREET_ASSETS_3L0E9T:
+        entries.append(
+            {
+                "source": "street_assets_3l0e9t",
+                "model_id": GSV_STREET_ASSETS_3L0E9T_MODEL_ID,
                 "enabled": True,
                 "gsv_only": True,
             }
@@ -532,13 +645,132 @@ async def detect_from_base64(b64_str: str) -> dict:
 
 
 async def detect_gsv_continued_from_base64(b64_str: str) -> dict:
-    """GSV Continued: run all five specialist models in parallel."""
+    """GSV Continued: run all seven specialist models in parallel."""
     return await _detect_base64_with_specs(
         b64_str,
         _gsv_continued_model_specs(),
         filter_vertical_boxes=True,
         include_model_status=True,
     )
+
+
+def _decode_b64_image(b64_str: str) -> np.ndarray:
+    if "," in b64_str:
+        b64_str = b64_str.split(",", maxsplit=1)[1]
+    arr = np.frombuffer(base64.b64decode(b64_str), np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Failed to decode base64 image")
+    return img
+
+
+def _resize_to_height(img: np.ndarray, target_h: int) -> np.ndarray:
+    h, w = img.shape[:2]
+    if h == target_h:
+        return img
+    target_w = int(w * target_h / h)
+    return cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+
+def stitch_annotated_panorama(
+    tiles: list[np.ndarray],
+    *,
+    title: str = "360 Degree Street Asset Panorama",
+) -> str:
+    """Stitch annotated tiles horizontally and prepend a title band."""
+    if not tiles:
+        raise ValueError("No tiles to stitch")
+
+    target_h = max(img.shape[0] for img in tiles)
+    normalized = [_resize_to_height(img, target_h) for img in tiles]
+    strip = cv2.hconcat(normalized)
+
+    title_h = 48
+    band = np.zeros((title_h, strip.shape[1], 3), dtype=np.uint8)
+    band[:] = (30, 30, 30)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.9
+    thickness = 2
+    (tw, th), _ = cv2.getTextSize(title, font, scale, thickness)
+    tx = max(0, (strip.shape[1] - tw) // 2)
+    ty = (title_h + th) // 2
+    cv2.putText(band, title, (tx, ty), font, scale, (220, 220, 220), thickness, cv2.LINE_AA)
+
+    combined = cv2.vconcat([band, strip])
+    _, buf = cv2.imencode(".jpg", combined, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    return f"data:image/jpeg;base64,{base64.b64encode(buf).decode()}"
+
+
+def _aggregate_model_status(status_lists: list[list[dict]]) -> list[dict]:
+    """Merge per-view model_status; failed on any view wins for that model."""
+    by_source: dict[str, dict] = {}
+    for statuses in status_lists:
+        for entry in statuses:
+            source = entry.get("source", "")
+            if source not in by_source:
+                by_source[source] = dict(entry)
+                continue
+            existing = by_source[source]
+            if entry.get("status") == "failed":
+                existing["status"] = "failed"
+                existing["error"] = entry.get("error") or existing.get("error")
+            pred = entry.get("prediction_count")
+            if pred is not None:
+                existing["prediction_count"] = (existing.get("prediction_count") or 0) + pred
+            lat = entry.get("latency_ms")
+            if lat is not None:
+                existing["latency_ms"] = max(existing.get("latency_ms") or 0, lat)
+    return list(by_source.values())
+
+
+async def detect_gsv_continued_panorama(
+    views_b64: list[tuple[int, str]],
+    *,
+    max_concurrent: int = 2,
+) -> dict:
+    """Detect all side views and stitch annotated panorama."""
+    if not views_b64:
+        raise ValueError("No views provided for panorama detection")
+
+    sem = asyncio.Semaphore(max_concurrent)
+
+    async def _detect_view(view: int, b64: str) -> tuple[int, dict]:
+        async with sem:
+            result = await detect_gsv_continued_from_base64(b64)
+            return view, result
+
+    pairs = await asyncio.gather(*[_detect_view(v, b) for v, b in views_b64])
+
+    views_out: dict[str, dict] = {}
+    annotated_tiles: list[np.ndarray] = []
+    all_counts: dict[str, int] = {}
+    all_status_lists: list[list[dict]] = []
+
+    for view, result in sorted(pairs, key=lambda x: x[0]):
+        annotated_b64 = result.get("annotated_image_b64", "")
+        if annotated_b64:
+            annotated_tiles.append(_decode_b64_image(annotated_b64))
+        views_out[str(view)] = {
+            "detections": result.get("detections", []),
+            "counts": result.get("counts", {}),
+            "model_status": result.get("model_status", []),
+            "image_size": result.get("image_size", {}),
+            "annotated_image_b64": annotated_b64,
+        }
+        for cls, cnt in result.get("counts", {}).items():
+            all_counts[cls] = all_counts.get(cls, 0) + cnt
+        if result.get("model_status"):
+            all_status_lists.append(result["model_status"])
+
+    panorama_b64 = stitch_annotated_panorama(annotated_tiles)
+
+    return {
+        "views": views_out,
+        "panorama_image_b64": panorama_b64,
+        "detections": [],
+        "counts": all_counts,
+        "model_status": _aggregate_model_status(all_status_lists),
+    }
 
 
 def _gsv_probe_test_image_b64() -> str:

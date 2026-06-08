@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { gsvContinuedImageUrl } from '../api'
+import GsvPanoramaViewer from './GsvPanoramaViewer'
 
 const ARROW_STYLE = {
   position: 'absolute',
@@ -46,14 +47,16 @@ function NavArrow({ direction, targetId, onNavigate, style }) {
 export default function GsvStreetViewViewer({
   locationId,
   view,
+  activeView,
   nav,
-  compass,
   detectionResult,
+  detecting,
   onNavigate,
   onForwardClickZone,
 }) {
-  const imageSrc =
-    detectionResult?.annotated_image_b64 || gsvContinuedImageUrl(locationId, view, 1920)
+  const isPanoramaMode = view >= 1 && view <= 4
+  const panoViews = detectionResult?.pano_views || nav?.side_views || [1, 2, 3, 4]
+  const scrollView = activeView ?? view
 
   const handleKeyDown = useCallback(
     (e) => {
@@ -77,7 +80,51 @@ export default function GsvStreetViewViewer({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  const heading = nav?.view_heading?.[view] ?? (compass != null ? (compass + view * 60) % 360 : null)
+  const viewLabels = nav?.view_labels || {}
+  const heading = nav?.view_heading?.[view] ?? null
+  const viewLabel =
+    viewLabels[view] ||
+    (view >= 1 && view <= 4 ? `Side ${view}` : view === 0 ? 'Overlay' : view === 5 ? 'Sky' : `View ${view}`)
+
+  const hudTitle =
+    heading != null
+      ? `${viewLabel} · ${Number(heading).toFixed(0)}°`
+      : viewLabel
+
+  if (isPanoramaMode) {
+    return (
+      <div style={{ position: 'relative', flex: 1, minHeight: 280, display: 'flex', flexDirection: 'column' }}>
+        <GsvPanoramaViewer
+          locationId={locationId}
+          panoramaImageB64={detectionResult?.panorama_image_b64}
+          activeView={scrollView}
+          panoViews={panoViews}
+          detecting={detecting}
+          onNavigate={onNavigate}
+          nav={nav}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            left: 12,
+            padding: '6px 10px',
+            borderRadius: 6,
+            background: 'rgba(0,0,0,0.55)',
+            color: '#fff',
+            fontSize: 11,
+            fontFamily: 'var(--font-mono)',
+            zIndex: 3,
+            pointerEvents: 'none',
+          }}
+        >
+          Loc {locationId} · {hudTitle}
+        </div>
+      </div>
+    )
+  }
+
+  const imageSrc = gsvContinuedImageUrl(locationId, view, 1920)
 
   return (
     <div
@@ -93,7 +140,7 @@ export default function GsvStreetViewViewer({
       }}
     >
       <img
-        key={`${locationId}-${view}-${detectionResult ? 'det' : 'img'}`}
+        key={`${locationId}-${view}`}
         src={imageSrc}
         alt={`Location ${locationId} view ${view}`}
         style={{
@@ -106,7 +153,6 @@ export default function GsvStreetViewViewer({
         draggable={false}
       />
 
-      {/* Click zone: lower center = forward */}
       {nav?.nav?.forward && (
         <button
           type="button"
@@ -166,8 +212,7 @@ export default function GsvStreetViewViewer({
           pointerEvents: 'none',
         }}
       >
-        Loc {locationId} · View {view}
-        {heading != null ? ` · ${Number(heading).toFixed(0)}°` : ''}
+        Loc {locationId} · {hudTitle}
       </div>
 
       <div

@@ -8,6 +8,8 @@ from copy import deepcopy
 from typing import Any
 
 HORIZONTAL_FOV_DEG = float(os.getenv("HORIZONTAL_FOV_DEG", "90"))
+_gsv_hfov_raw = os.getenv("GSV_HORIZONTAL_FOV_DEG", "").strip()
+GSV_HORIZONTAL_FOV_DEG = float(_gsv_hfov_raw) if _gsv_hfov_raw else None
 HFOV_SCALE = float(os.getenv("HFOV_SCALE", "1.0"))
 COMPASS_BEARING_OFFSET_DEG = float(os.getenv("COMPASS_BEARING_OFFSET_DEG", "0"))
 DEFAULT_OBJECT_DISTANCE_M = float(os.getenv("DEFAULT_OBJECT_DISTANCE_M", "15"))
@@ -90,6 +92,20 @@ def horizontal_fov_deg(focal_px: float, image_width: int) -> float:
     if focal_px <= 0 or image_width <= 0:
         return HORIZONTAL_FOV_DEG
     return math.degrees(2 * math.atan(image_width / (2 * focal_px)))
+
+
+def gsv_effective_h_fov_deg() -> float:
+    """Horizontal FOV for PitOrlManh GSV tiles (env override optional)."""
+    base = GSV_HORIZONTAL_FOV_DEG if GSV_HORIZONTAL_FOV_DEG is not None else HORIZONTAL_FOV_DEG
+    return base * HFOV_SCALE
+
+
+def focal_px_from_hfov(image_width: int, h_fov_deg: float) -> float:
+    """Pinhole focal length in pixels from image width and horizontal FOV."""
+    if image_width <= 0 or h_fov_deg <= 0:
+        return 0.0
+    half = math.radians(h_fov_deg / 2.0)
+    return (image_width / 2.0) / math.tan(half)
 
 
 def scaled_focal_px(

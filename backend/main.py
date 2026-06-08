@@ -540,16 +540,26 @@ async def gsv_continued_detect(
     iw = int(image_size.get("width") or 0)
     ih = int(image_size.get("height") or 0)
     compass_angle = gsv_continued_service.view_heading(float(loc.get("compass") or 0), view)
-    detections = geolocation.enrich_detections_with_geo(
-        result.get("detections", []),
-        camera_lat=loc["lat"],
-        camera_lng=loc["lng"],
-        compass_angle=compass_angle,
-        image_width=iw,
-        image_height=ih,
-    )
 
-    return {
+    geo_skipped_reason = None
+    if compass_angle is None:
+        detections = result.get("detections", [])
+        geo_skipped_reason = "non_horizontal_view"
+    else:
+        hfov = geolocation.gsv_effective_h_fov_deg()
+        focal = geolocation.focal_px_from_hfov(iw, hfov)
+        detections = geolocation.enrich_detections_with_geo(
+            result.get("detections", []),
+            camera_lat=loc["lat"],
+            camera_lng=loc["lng"],
+            compass_angle=compass_angle,
+            image_width=iw,
+            image_height=ih,
+            camera_focal_px=focal if focal > 0 else None,
+            source_width=iw,
+        )
+
+    response = {
         "id": location_id,
         "view": view,
         "lat": loc["lat"],
@@ -561,6 +571,81 @@ async def gsv_continued_detect(
         **result,
         "detections": detections,
     }
+    if geo_skipped_reason:
+        response["geo_skipped_reason"] = geo_skipped_reason
+    return response
+
+
+@app.post("/gsv-continued/locations/{location_id}/panorama/detect")
+async def gsv_continued_panorama_detect(location_id: int):
+    try:
+        loc = gsv_continued_service.get_location(location_id)
+        pano_views = gsv_continued_service.pano_side_views_for_location(location_id)
+        if not pano_views:
+            raise ValueError(f"No side views available for panorama at location {location_id}")
+        views_b64: list[tuple[int, str]] = []
+        for view in pano_views:
+            image_bytes = gsv_continued_service.read_image_bytes(location_id, view)
+            views_b64.append((view, base64.b64encode(image_bytes).decode("ascii")))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        result = await detector.detect_gsv_continued_panorama(views_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Inference server error: {str(exc)}") from exc
+
+    compass = float(loc.get("compass") or 0)
+    hfov = geolocation.gsv_effective_h_fov_deg()
+    merged_detections: list[dict] = []
+    views_enriched: dict[str, dict] = {}
+
+    for view_str, view_result in result.get("views", {}).items():
+        view = int(view_str)
+        image_size = view_result.get("image_size") or {}
+        iw = int(image_size.get("width") or 0)
+        ih = int(image_size.get("height") or 0)
+        compass_angle = gsv_continued_service.view_heading(compass, view)
+        focal = geolocation.focal_px_from_hfov(iw, hfov) if iw > 0 else None
+
+        if compass_angle is None:
+            enriched = list(view_result.get("detections", []))
+        else:
+            enriched = geolocation.enrich_detections_with_geo(
+                view_result.get("detections", []),
+                camera_lat=loc["lat"],
+                camera_lng=loc["lng"],
+                compass_angle=compass_angle,
+                image_width=iw,
+                image_height=ih,
+                camera_focal_px=focal if focal and focal > 0 else None,
+                source_width=iw,
+            )
+
+        for det in enriched:
+            det["view"] = view
+        merged_detections.extend(enriched)
+        views_enriched[view_str] = {
+            **view_result,
+            "detections": enriched,
+            "view_heading": compass_angle,
+        }
+
+    response = {
+        "id": location_id,
+        "lat": loc["lat"],
+        "lng": loc["lng"],
+        "compass": loc.get("compass"),
+        "pano_views": pano_views,
+        "source": "gsv_continued",
+        "panorama": True,
+        **result,
+        "views": views_enriched,
+        "detections": merged_detections,
+    }
+    return response
 
 
 @app.delete("/batch/{job_id}")

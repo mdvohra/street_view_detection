@@ -5,9 +5,14 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "backend"))
+
+import gsv_continued_service  # noqa: E402
+
 GSV = ROOT / "Dataset_PitOrlManh"
 DATASET = ROOT / "dataset"
 OUT = ROOT / "share dataset"
@@ -15,10 +20,6 @@ GSV_IMAGES = GSV / "zipped images"
 
 GSV_PICK_IDS = [1, 200, 400, 600, 800]
 DATASET_PICK_IDS = [0, 2500, 5000, 7500, 9999]
-
-
-def _view_heading(compass: float, view: int) -> float:
-    return round((compass + view * 60.0) % 360.0, 1)
 
 
 def build_gsv_samples() -> list[dict]:
@@ -41,6 +42,11 @@ def build_gsv_samples() -> list[dict]:
             views_copied.append(view)
 
         compass = float(loc.get("compass") or 0)
+        view_heading_deg = {}
+        for v in views_copied:
+            h = gsv_continued_service.view_heading(compass, v)
+            if h is not None:
+                view_heading_deg[str(v)] = round(h, 1)
         meta = {
             "id": loc_id,
             "lat": loc["lat"],
@@ -49,7 +55,7 @@ def build_gsv_samples() -> list[dict]:
             "views": views_copied,
             "part": part,
             "nav": loc.get("nav"),
-            "view_heading_deg": {str(v): _view_heading(compass, v) for v in views_copied},
+            "view_heading_deg": view_heading_deg,
             "filenames": {str(v): f"view_{v}.jpg" for v in views_copied},
         }
         (folder / "metadata.json").write_text(

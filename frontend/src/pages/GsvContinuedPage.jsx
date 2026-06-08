@@ -1,34 +1,52 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Toaster } from 'react-hot-toast'
 import {
   apiErrorMessage,
-  detectGsvContinuedLocation,
+  detectGsvContinuedPanorama,
   getGsvContinuedMeta,
   getGsvContinuedNav,
   getGsvContinuedPoints,
 } from '../api'
+import GsvCoordSearch from '../components/GsvCoordSearch'
 import GsvContinuedImagePanel from '../components/GsvContinuedImagePanel'
 import GsvContinuedDetectionTable from '../components/GsvContinuedDetectionTable'
 import GsvStreetViewViewer from '../components/GsvStreetViewViewer'
 import DatasetMap from '../components/DatasetMap'
+import {
+  appendLocationResult,
+  createSession,
+  finalizeSession,
+  sessionHasGeoDetections,
+  sessionLocationCount,
+  sessionObjectCount,
+} from '../lib/gsvMapSession'
 import '../dashboard.css'
 
 export default function GsvContinuedPage() {
+  const navigate = useNavigate()
   const [points, setPoints] = useState([])
   const [meta, setMeta] = useState(null)
   const [loadingMeta, setLoadingMeta] = useState(true)
   const [loadingPoints, setLoadingPoints] = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [, setFromLocationId] = useState(null)
-  const [selectedView, setSelectedView] = useState(0)
+  const [selectedView, setSelectedView] = useState(4)
   const [navData, setNavData] = useState(null)
   const [trailIds, setTrailIds] = useState([])
   const [detectionResult, setDetectionResult] = useState(null)
   const [detecting, setDetecting] = useState(false)
   const [basemap, setBasemap] = useState('street')
   const [showMap, setShowMap] = useState(true)
+  const [mapSessionActive, setMapSessionActive] = useState(false)
+  const [mapSession, setMapSession] = useState(null)
+  const [selectedSessionDetectionId, setSelectedSessionDetectionId] = useState(null)
+  const mapSessionActiveRef = useRef(false)
+
+  useEffect(() => {
+    mapSessionActiveRef.current = mapSessionActive
+  }, [mapSessionActive])
 
   useEffect(() => {
     let cancelled = false
@@ -82,9 +100,9 @@ export default function GsvContinuedPage() {
       setFromLocationId(fromId)
       const nav = await loadNav(id, fromId)
       if (nav) {
-        setSelectedView(nav.suggested_view ?? 0)
+        setSelectedView(nav.suggested_view ?? 4)
       } else {
-        setSelectedView(0)
+        setSelectedView(4)
       }
       if (resetTrail) {
         setTrailIds([id])
@@ -121,30 +139,38 @@ export default function GsvContinuedPage() {
 
   const resolvedView = useMemo(() => {
     if (selectedId == null) return null
-    const views = navData?.views || selectedPoint?.views || [0]
-    return views.includes(selectedView) ? selectedView : views[0]
+    const views = navData?.views || selectedPoint?.views || [0, 1, 2, 3, 4, 5]
+    if (views.includes(selectedView)) return selectedView
+    const fallback = navData?.suggested_view ?? 4
+    if (views.includes(fallback)) return fallback
+    const side = views.find((v) => v >= 1 && v <= 4)
+    return side ?? views[0]
   }, [selectedId, selectedView, navData, selectedPoint])
 
   useEffect(() => {
-    if (selectedId == null || resolvedView == null) return
+    if (selectedId == null) return
 
     const controller = new AbortController()
     let cancelled = false
 
-    async function runDetection() {
+    async function runPanoramaDetection() {
       setDetecting(true)
+      setDetectionResult(null)
       try {
-        const res = await detectGsvContinuedLocation(selectedId, resolvedView, {
+        const res = await detectGsvContinuedPanorama(selectedId, {
           signal: controller.signal,
         })
         if (!cancelled) {
           setDetectionResult(res.data)
+          if (mapSessionActiveRef.current) {
+            setMapSession((prev) => (prev ? appendLocationResult(prev, res.data) : prev))
+          }
         }
       } catch (err) {
         if (cancelled || controller.signal.aborted || err?.code === 'ERR_CANCELED') {
           return
         }
-        toast.error(apiErrorMessage(err, 'Detection failed'))
+        toast.error(apiErrorMessage(err, 'Panorama detection failed'))
       } finally {
         if (!cancelled) {
           setDetecting(false)
@@ -152,13 +178,48 @@ export default function GsvContinuedPage() {
       }
     }
 
-    runDetection()
+    runPanoramaDetection()
 
     return () => {
       cancelled = true
       controller.abort()
     }
-  }, [selectedId, resolvedView])
+  }, [selectedId])
+
+  const sessionDetectionMarkers = useMemo(
+    () => mapSession?.detections || [],
+    [mapSession]
+  )
+
+  const handleStartMapSession = useCallback(() => {
+    let session = createSession()
+    if (detectionResult && selectedId != null) {
+      session = appendLocationResult(session, detectionResult)
+    }
+    setMapSession(session)
+    setMapSessionActive(true)
+    setSelectedSessionDetectionId(null)
+    toast.success('Map detection started — navigate and visit locations')
+  }, [detectionResult, selectedId])
+
+  const handleCancelMapSession = useCallback(() => {
+    setMapSessionActive(false)
+    setMapSession(null)
+    setSelectedSessionDetectionId(null)
+    toast('Map detection session cancelled')
+  }, [])
+
+  const handleEndMapSession = useCallback(() => {
+    if (!mapSession) return
+    if (!sessionHasGeoDetections(mapSession)) {
+      toast.error('No detections with map coordinates yet — visit locations with side-view detections')
+      return
+    }
+    const finalized = finalizeSession(mapSession)
+    setMapSessionActive(false)
+    setMapSession(null)
+    navigate(`/gsv-continued/map-results/${finalized.sessionId}`)
+  }, [mapSession, navigate])
 
   const trailPoints = useMemo(
     () =>
@@ -187,11 +248,47 @@ export default function GsvContinuedPage() {
           <h1 className="dashboard-title">GSV continued</h1>
           <p className="dashboard-subtitle">{subtitle}</p>
         </div>
+        <GsvCoordSearch
+          points={points}
+          onSelectLocation={(id) => handleSelectPoint(id)}
+          disabled={loadingPoints || !points.length}
+        />
+        <div className="gsv-session-controls">
+          {mapSessionActive ? (
+            <>
+              <span className="gsv-session-active">
+                Recording · {sessionLocationCount(mapSession)} loc · {sessionObjectCount(mapSession)} obj
+              </span>
+              <button
+                type="button"
+                className="dashboard-btn dashboard-btn-primary"
+                onClick={handleEndMapSession}
+                disabled={!sessionHasGeoDetections(mapSession)}
+              >
+                End map detection
+              </button>
+              <button
+                type="button"
+                className="dashboard-btn dashboard-btn-ghost"
+                onClick={handleCancelMapSession}
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="dashboard-btn dashboard-btn-primary"
+              onClick={handleStartMapSession}
+            >
+              Start map detection
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setShowMap((v) => !v)}
           style={{
-            marginLeft: 'auto',
             padding: '6px 12px',
             borderRadius: 8,
             border: '1px solid var(--border)',
@@ -242,6 +339,10 @@ export default function GsvContinuedPage() {
                 compact
                 selectedPinColor="#EF4444"
                 selectedPinSize={18}
+                detectionMarkers={mapSessionActive ? sessionDetectionMarkers : []}
+                selectedDetectionId={selectedSessionDetectionId}
+                onSelectDetection={setSelectedSessionDetectionId}
+                showSessionLegend={mapSessionActive && sessionDetectionMarkers.length > 0}
               />
             )}
           </section>
@@ -265,10 +366,11 @@ export default function GsvContinuedPage() {
             <>
               <GsvStreetViewViewer
                 locationId={selectedId}
-                view={selectedView}
+                view={resolvedView ?? selectedView}
+                activeView={resolvedView ?? selectedView}
                 nav={navData}
-                compass={navData?.compass ?? selectedPoint.compass}
                 detectionResult={detectionResult}
+                detecting={detecting}
                 onNavigate={handleNavigate}
                 onForwardClickZone={() => handleNavigate('forward')}
               />
