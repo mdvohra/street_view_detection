@@ -16,6 +16,8 @@ import gsv_continued_service
 import detector
 import geolocation
 import geolocate_batch
+import gsv_geolocate
+import road_snap
 import mapillary
 import storage
 
@@ -557,6 +559,7 @@ async def gsv_continued_detect(
             image_height=ih,
             camera_focal_px=focal if focal > 0 else None,
             source_width=iw,
+            gsv_mode=True,
         )
 
     response = {
@@ -622,6 +625,7 @@ async def gsv_continued_panorama_detect(location_id: int):
                 image_height=ih,
                 camera_focal_px=focal if focal and focal > 0 else None,
                 source_width=iw,
+                gsv_mode=True,
             )
 
         for det in enriched:
@@ -632,6 +636,21 @@ async def gsv_continued_panorama_detect(location_id: int):
             "detections": enriched,
             "view_heading": compass_angle,
         }
+
+    fused = gsv_geolocate.process_panorama_official_objects(location_id, merged_detections)
+    official_objects = fused["official_objects"]
+    iw_ref = 0
+    for view_result in views_enriched.values():
+        iw_ref = max(iw_ref, int((view_result.get("image_size") or {}).get("width") or 0))
+    official_objects = road_snap.snap_official_objects(
+        official_objects,
+        location_id=location_id,
+        compass_raw=compass,
+        image_width=iw_ref or 1280,
+        h_fov_deg=hfov,
+    )
+    official_counts = gsv_geolocate.official_counts_from_objects(official_objects)
+    verified_counts = gsv_geolocate.official_counts_from_objects(official_objects, verified_only=True)
 
     response = {
         "id": location_id,
@@ -644,8 +663,33 @@ async def gsv_continued_panorama_detect(location_id: int):
         **result,
         "views": views_enriched,
         "detections": merged_detections,
+        "official_objects": official_objects,
+        "official_counts": official_counts,
+        "verified_counts": verified_counts,
     }
     return response
+
+
+class GsvSessionRefineLocation(BaseModel):
+    id: int
+    lat: float
+    lng: float
+    compass: float | None = None
+    image_width: int | None = 1280
+    detections: list[dict]
+
+
+class GsvSessionRefineRequest(BaseModel):
+    locations: list[GsvSessionRefineLocation]
+
+
+@app.post("/gsv-continued/sessions/refine")
+def gsv_continued_session_refine(body: GsvSessionRefineRequest):
+    """Re-fuse deduped official objects and intersection snaps for a full map session."""
+    if not body.locations:
+        raise HTTPException(status_code=400, detail="No locations provided")
+    payload = [loc.model_dump() for loc in body.locations]
+    return gsv_geolocate.refine_session_locations(payload)
 
 
 @app.delete("/batch/{job_id}")

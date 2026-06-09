@@ -1,0 +1,55 @@
+{
+  "description": "Sample GSV map session for geo audit regression (Pittsburgh-style coordinates).",
+  "sessionId": "fixture-audit-001",
+  "locations": [
+    {"id": 492, "lat": 40.444418, "lng": -80.00105, "order": 0, "compass": 117.0},
+    {"id": 493, "lat": 40.444502, "lng": -80.001, "order": 1, "compass": 117.19}
+  ],
+  "detections": [
+    {
+      "detection_id": "official:493:abc1",
+      "location_id": 493,
+      "class": "Traffic Signal",
+      "lat": 40.44455,
+      "lng": -80.00092,
+      "geo_method": "intersection_corner_snap",
+      "geo_quality": "high",
+      "tier": "official"
+    },
+    {
+      "detection_id": "official:493:abc2",
+      "location_id": 493,
+      "class": "Street Light",
+      "lat": 40.44448,
+      "lng": -80.00098,
+      "geo_method": "road_edge_snap",
+      "geo_quality": "high",
+      "tier": "official"
+    },
+    {
+      "detection_id": "official:493:abc3",
+      "location_id": 493,
+      "class": "Pole",
+      "lat": 40.44451,
+      "lng": -80.00095,
+      "geo_method": "road_edge_snap",
+      "geo_quality": "high",
+      "tier": "official"
+    },
+    {
+      "detection_id": "official:493:bad1",
+      "location_id": 493,
+      "class": "Street Light",
+      "lat": 40.444502,
+      "lng": -80.001,
+      "geo_method": "bearing_single",
+      "geo_quality": "low",
+      "tier": "estimated"
+    }
+  ],
+  "official_counts": {
+    "Traffic Signal": 1,
+    "Street Light": 2,
+    "Pole": 1
+  }
+}

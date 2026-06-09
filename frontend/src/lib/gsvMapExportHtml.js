@@ -1,26 +1,24 @@
 import { detectGsvContinuedPanorama } from '../api'
 import { CLASS_COLORS, CLASS_EMOJIS, CLASS_META } from '../constants/classes'
+import {
+  buildViewTilesFromResponse,
+  enrichImageryWithViewTiles,
+} from './gsvPanoramaClassFilter'
+import { buildMap3dExportScript } from './map3d/map3dExportBootstrap'
+import { filterMapMarkers } from './gsvMapSession'
 
 const FETCH_CONCURRENCY = 2
 
-const EXPORT_VIEWER_SCRIPT = `
+function buildExportViewerScript() {
+  return `
 (function () {
+${buildMap3dExportScript()}
+
   const data = JSON.parse(document.getElementById('export-data').textContent);
   const session = data.session;
   const imagery = data.imagery;
   const classColors = data.classColors || {};
   const classEmojis = data.classEmojis || {};
-
-  const BASE_LAYERS = {
-    street: {
-      url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      attribution: '&copy; OpenStreetMap contributors',
-    },
-    satellite: {
-      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      attribution: 'Tiles &copy; Esri',
-    },
-  };
 
   let filterClass = null;
   let basemap = 'street';
@@ -28,40 +26,37 @@ const EXPORT_VIEWER_SCRIPT = `
   let selectedLocationId = null;
   let selectedDetectionId = null;
   let selectedView = 4;
+  let terrainEnabled = true;
+  let buildingsEnabled = true;
 
   let map;
-  let tileLayer;
-  let trailLayer;
-  let rayLayer;
-  let cameraLayer;
-  let detectionLayer;
+  let mapMarkers = [];
+  let savedView = null;
 
   function emoji(cls) {
     return classEmojis[cls] || '\\u{1F4E6}';
   }
 
-  function makeCameraIcon(color, size) {
-    return L.divIcon({
-      className: '',
-      html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color + ';border:2px solid #fff;box-shadow:0 0 8px ' + color + '99;"></div>',
-      iconSize: [size, size],
-      iconAnchor: [size / 2, size / 2],
-    });
+  function clearMapMarkers() {
+    mapMarkers.forEach(function (m) { m.remove(); });
+    mapMarkers = [];
   }
 
-  function makeDetectionIcon(cls, selected) {
-    const em = emoji(cls);
-    const color = classColors[cls] || '#888';
-    const size = selected ? 30 : 24;
-    const fontSize = selected ? 17 : 14;
-    const border = selected ? '#05CB63' : color;
-    const selClass = selected ? ' map-detection-symbol--selected' : '';
-    return L.divIcon({
-      className: '',
-      html: '<div class="map-detection-symbol' + selClass + '" style="width:' + size + 'px;height:' + size + 'px;border-color:' + border + ';font-size:' + fontSize + 'px;">' + em + '</div>',
-      iconSize: [size, size],
-      iconAnchor: [size / 2, size / 2],
-    });
+  function addHtmlMarker(lng, lat, html, onClick) {
+    var wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    var el = wrap.firstElementChild || wrap;
+    el.style.cursor = 'pointer';
+    if (onClick) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
+        onClick();
+      });
+    }
+    var marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .addTo(map);
+    mapMarkers.push(marker);
   }
 
   function filteredDetections() {
@@ -97,6 +92,130 @@ const EXPORT_VIEWER_SCRIPT = `
     return method;
   }
 
+  function filterDetectionsByClass(list, cls) {
+    if (!cls) return list;
+    return list.filter(function (d) { return d.class === cls; });
+  }
+
+  function hexToRgb(hex) {
+    const h = (hex || '#b4b4b4').replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map(function (c) { return c + c; }).join('') : h, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function loadImage(src) {
+    return new Promise(function (resolve, reject) {
+      const img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('image load failed')); };
+      img.src = src;
+    });
+  }
+
+  function drawAnnotatedView(ctx, detections, cls) {
+    const list = filterDetectionsByClass(detections, cls);
+    list.forEach(function (d) {
+      const bbox = d.bbox;
+      if (!bbox || bbox.length < 4) return;
+      const x1 = bbox[0]; const y1 = bbox[1]; const x2 = bbox[2]; const y2 = bbox[3];
+      const rgb = hexToRgb(classColors[d.class]);
+      const color = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
+      ctx.save();
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = color;
+      ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      ctx.restore();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      const label = (d.class || '') + ' ' + Math.round((d.confidence || 0) * 100) + '%';
+      ctx.font = '600 12px system-ui, sans-serif';
+      const tw = ctx.measureText(label).width;
+      const th = 14;
+      const labelY = Math.max(y1 - th - 4, 0);
+      ctx.fillStyle = color;
+      ctx.fillRect(x1, labelY, tw + 6, th + 4);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, x1 + 3, labelY + th);
+    });
+  }
+
+  function stitchCanvases(tiles) {
+    const targetH = Math.max.apply(null, tiles.map(function (t) { return t.height; }));
+    const normalized = tiles.map(function (t) {
+      if (t.height === targetH) return t;
+      const scale = targetH / t.height;
+      const w = Math.round(t.width * scale);
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = targetH;
+      c.getContext('2d').drawImage(t, 0, 0, w, targetH);
+      return c;
+    });
+    const stripW = normalized.reduce(function (sum, t) { return sum + t.width; }, 0);
+    const strip = document.createElement('canvas');
+    strip.width = stripW;
+    strip.height = targetH;
+    const stripCtx = strip.getContext('2d');
+    let x = 0;
+    normalized.forEach(function (tile) {
+      stripCtx.drawImage(tile, x, 0);
+      x += tile.width;
+    });
+    const titleH = 48;
+    const combined = document.createElement('canvas');
+    combined.width = stripW;
+    combined.height = targetH + titleH;
+    const ctx = combined.getContext('2d');
+    ctx.fillStyle = '#1e1e1e';
+    ctx.fillRect(0, 0, stripW, titleH);
+    ctx.fillStyle = '#dcdcdc';
+    ctx.font = '600 16px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('360 Degree Street Asset Panorama', stripW / 2, titleH / 2);
+    ctx.drawImage(strip, 0, titleH);
+    return combined.toDataURL('image/jpeg', 0.88);
+  }
+
+  function buildFilteredPanoramaFromTiles(panoViews, viewTiles, cls) {
+    const promises = panoViews.map(function (view) {
+      const key = String(view);
+      const tile = viewTiles[key];
+      if (!tile || !tile.raw_b64) return Promise.resolve(null);
+      return loadImage(tile.raw_b64).then(function (img) {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        drawAnnotatedView(ctx, tile.detections || [], cls);
+        return canvas;
+      });
+    });
+    return Promise.all(promises).then(function (results) {
+      const tiles = results.filter(Boolean);
+      if (!tiles.length) return null;
+      return stitchCanvases(tiles);
+    });
+  }
+
+  function applyFilterChange() {
+    if (selectedDetectionId) {
+      const sel = (session.detections || []).find(function (d) { return d.detection_id === selectedDetectionId; });
+      if (sel && filterClass && sel.class !== filterClass) selectedDetectionId = null;
+    }
+    initFilters();
+    renderMap();
+    renderTable();
+    renderPanorama();
+  }
+
+  function toggleFilterClass(cls) {
+    filterClass = filterClass === cls ? null : cls;
+    applyFilterChange();
+  }
+
   function scrollToView(view) {
     const container = document.getElementById('pano-scroll');
     const img = document.getElementById('pano-img');
@@ -112,48 +231,81 @@ const EXPORT_VIEWER_SCRIPT = `
     container.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
   }
 
+  function renderPanorama() {
+    const img = document.getElementById('pano-img');
+    const hud = document.getElementById('pano-hud');
+    if (!img || selectedLocationId == null) return;
+
+    const locKey = String(selectedLocationId);
+    const locImagery = imagery[locKey];
+    if (hud) {
+      let hudText = 'Location ' + selectedLocationId;
+      if (selectedView != null) hudText += ' \\u00b7 ' + formatView(selectedView);
+      if (filterClass) hudText += ' \\u00b7 ' + filterClass;
+      hud.textContent = hudText;
+    }
+    if (!locImagery) {
+      img.src = '';
+      return;
+    }
+
+    if (!filterClass) {
+      img.src = locImagery.panorama_image_b64 || '';
+      img.onload = function () { scrollToView(selectedView); };
+      return;
+    }
+
+    const panoViews = locImagery.pano_views || [1, 2, 3, 4];
+    const viewTiles = locImagery.view_tiles || {};
+    buildFilteredPanoramaFromTiles(panoViews, viewTiles, filterClass).then(function (b64) {
+      img.src = b64 || locImagery.panorama_image_b64 || '';
+      img.onload = function () { scrollToView(selectedView); };
+    }).catch(function () {
+      img.src = locImagery.panorama_image_b64 || '';
+    });
+  }
+
   function renderTable() {
     const tbody = document.getElementById('det-table-body');
     const empty = document.getElementById('viewer-empty');
     const viewerContent = document.getElementById('viewer-content');
+    const filterBanner = document.getElementById('filter-banner');
     if (!tbody) return;
 
     if (selectedLocationId == null) {
       if (viewerContent) viewerContent.style.display = 'none';
       if (empty) empty.style.display = 'flex';
+      if (filterBanner) filterBanner.style.display = 'none';
       tbody.innerHTML = '';
       return;
     }
 
     if (empty) empty.style.display = 'none';
     if (viewerContent) viewerContent.style.display = 'flex';
+    if (filterBanner) {
+      filterBanner.style.display = filterClass ? 'block' : 'none';
+      filterBanner.textContent = filterClass
+        ? 'Showing ' + filterClass + ' only \\u00b7 click row again to show all'
+        : '';
+    }
 
-    const dets = (session.detections || []).filter(function (d) {
+    let dets = (session.detections || []).filter(function (d) {
       return d.location_id === selectedLocationId;
     });
-
-    const locKey = String(selectedLocationId);
-    const locImagery = imagery[locKey];
-    const pano = locImagery && locImagery.panorama_image_b64;
-    const img = document.getElementById('pano-img');
-    const hud = document.getElementById('pano-hud');
-    if (img) {
-      img.src = pano || '';
-      img.onload = function () { scrollToView(selectedView); };
-    }
-    if (hud) {
-      hud.textContent = 'Location ' + selectedLocationId + (selectedView != null ? ' \\u00b7 ' + formatView(selectedView) : '');
-    }
+    dets = filterDetectionsByClass(dets, filterClass);
 
     if (!dets.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="padding:12px;color:#8b9cb3;">No detections for this location</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:12px;color:#8b9cb3;">' +
+        (filterClass ? 'No ' + filterClass + ' detections at this location' : 'No detections for this location') +
+        '</td></tr>';
+      renderPanorama();
       return;
     }
 
     tbody.innerHTML = dets.map(function (d, i) {
       const highlighted = d.detection_id === selectedDetectionId;
-      const rowStyle = highlighted ? ' style="background:rgba(5,203,99,0.12);"' : '';
-      return '<tr' + rowStyle + ' data-detection-id="' + d.detection_id + '">' +
+      const rowStyle = highlighted ? ' style="background:rgba(5,203,99,0.12);cursor:pointer;"' : ' style="cursor:pointer;"';
+      return '<tr' + rowStyle + ' data-detection-id="' + d.detection_id + '" data-class="' + (d.class || '') + '">' +
         '<td>' + (i + 1) + '</td>' +
         '<td><span class="det-emoji">' + emoji(d.class) + '</span> ' + (d.class || '') + '</td>' +
         '<td>' + formatView(d.view) + '</td>' +
@@ -164,7 +316,7 @@ const EXPORT_VIEWER_SCRIPT = `
         '</tr>';
     }).join('');
 
-    scrollToView(selectedView);
+    renderPanorama();
   }
 
   function selectDetection(detectionId) {
@@ -173,15 +325,20 @@ const EXPORT_VIEWER_SCRIPT = `
     selectedLocationId = det.location_id;
     selectedDetectionId = detectionId;
     selectedView = det.view != null ? det.view : 4;
-    if (det.lat != null && det.lng != null && map) {
-      map.flyTo([det.lat, det.lng], 17, { duration: 0.45 });
+    if (filterClass != null && det.class !== filterClass) {
+      filterClass = det.class;
     }
-    renderMap();
-    renderTable();
+    if (det.lat != null && det.lng != null && map) {
+      map.flyTo({ center: [det.lng, det.lat], zoom: MAP3D_CFG.defaults.flyToZoom, pitch: map.getPitch(), duration: 450 });
+    }
+    applyFilterChange();
   }
 
   function selectCamera(locationId) {
-    const firstDet = (session.detections || []).find(function (d) { return d.location_id === locationId; });
+    const pool = filterClass
+      ? (session.detections || []).filter(function (d) { return d.class === filterClass; })
+      : session.detections || [];
+    const firstDet = pool.find(function (d) { return d.location_id === locationId; });
     if (firstDet) {
       selectDetection(firstDet.detection_id);
       return;
@@ -190,62 +347,48 @@ const EXPORT_VIEWER_SCRIPT = `
     selectedDetectionId = null;
     selectedView = 4;
     const loc = (session.locations || []).find(function (l) { return l.id === locationId; });
-    if (loc && map) map.flyTo([loc.lat, loc.lng], 17, { duration: 0.45 });
+    if (loc && map) {
+      map.flyTo({ center: [loc.lng, loc.lat], zoom: MAP3D_CFG.defaults.flyToZoom, pitch: map.getPitch(), duration: 450 });
+    }
     renderMap();
     renderTable();
   }
 
   function renderMap() {
     if (!map) return;
-    const dets = filteredDetections();
+    var dets = filteredDetections();
 
-    if (tileLayer) map.removeLayer(tileLayer);
-    const layer = BASE_LAYERS[basemap];
-    tileLayer = L.tileLayer(layer.url, { attribution: layer.attribution, maxZoom: 19 }).addTo(map);
+    enhanceMap3dExport(map, { basemap: basemap, terrainEnabled: terrainEnabled, buildingsEnabled: buildingsEnabled });
 
-    if (trailLayer) map.removeLayer(trailLayer);
-    const trail = trailPoints();
-    if (trail.length > 1) {
-      trailLayer = L.polyline(trail, { color: '#05CB63', weight: 3, opacity: 0.85 }).addTo(map);
-    } else {
-      trailLayer = null;
-    }
+    var trail = trailPoints().map(function (p) { return { lat: p[0], lng: p[1] }; });
+    ensureGeoJsonSource(map, 'export-trail', trailToGeoJSON(trail));
+    ensureLineLayer(map, 'export-trail', 'export-trail-line', {
+      'line-color': '#05CB63',
+      'line-width': 3,
+      'line-opacity': 0.85,
+    });
 
-    if (rayLayer) map.removeLayer(rayLayer);
-    rayLayer = L.layerGroup();
-    if (showRays) {
-      dets.forEach(function (d) {
-        if (d.camera_lat == null) return;
-        const endLat = d.ray_end_lat != null ? d.ray_end_lat : d.lat;
-        const endLng = d.ray_end_lng != null ? d.ray_end_lng : d.lng;
-        L.polyline(
-          [[d.camera_lat, d.camera_lng], [endLat, endLng]],
-          { color: classColors[d.class] || '#888', weight: 2, dashArray: '6 4', opacity: 0.75 }
-        ).addTo(rayLayer);
-      });
-    }
-    rayLayer.addTo(map);
+    ensureGeoJsonSource(map, 'export-rays', raysToGeoJSON(dets, showRays, classColors));
+    ensureLineLayer(map, 'export-rays', 'export-ray-lines', {
+      'line-color': ['get', 'color'],
+      'line-width': 2,
+      'line-opacity': 0.75,
+      'line-dasharray': [2, 2],
+    });
 
-    if (cameraLayer) map.removeLayer(cameraLayer);
-    cameraLayer = L.layerGroup();
+    clearMapMarkers();
     (session.locations || []).forEach(function (loc) {
-      const selected = loc.id === selectedLocationId;
-      L.marker([loc.lat, loc.lng], {
-        icon: makeCameraIcon(selected ? '#05CB63' : '#3B82F6', selected ? 14 : 8),
-      }).on('click', function () { selectCamera(loc.id); }).addTo(cameraLayer);
+      var selected = loc.id === selectedLocationId;
+      addHtmlMarker(loc.lng, loc.lat, cameraMarkerHtml(selected ? '#05CB63' : '#3B82F6', selected ? 14 : 8), function () {
+        selectCamera(loc.id);
+      });
     });
-    cameraLayer.addTo(map);
-
-    if (detectionLayer) map.removeLayer(detectionLayer);
-    detectionLayer = L.layerGroup();
     dets.forEach(function (d) {
-      const selected = d.detection_id === selectedDetectionId;
-      L.marker([d.lat, d.lng], {
-        icon: makeDetectionIcon(d.class, selected),
-        zIndexOffset: selected ? 900 : 500,
-      }).on('click', function () { selectDetection(d.detection_id); }).addTo(detectionLayer);
+      var selected = d.detection_id === selectedDetectionId;
+      addHtmlMarker(d.lng, d.lat, detectionMarkerHtml(d.class, selected, classColors, classEmojis), function () {
+        selectDetection(d.detection_id);
+      });
     });
-    detectionLayer.addTo(map);
 
     updateLegend(dets);
   }
@@ -280,8 +423,7 @@ const EXPORT_VIEWER_SCRIPT = `
       btn.textContent = label;
       btn.addEventListener('click', function () {
         filterClass = cls;
-        initFilters();
-        renderMap();
+        applyFilterChange();
       });
       container.appendChild(btn);
     }
@@ -294,16 +436,42 @@ const EXPORT_VIEWER_SCRIPT = `
   }
 
   function initMap() {
-    const pts = [];
+    var pts = [];
     (session.locations || []).forEach(function (l) { pts.push([l.lat, l.lng]); });
     (session.detections || []).forEach(function (d) { if (d.lat != null) pts.push([d.lat, d.lng]); });
-    const center = pts.length ? pts[0] : [21.1702, 72.8311];
+    var center = pts.length ? [pts[0][1], pts[0][0]] : [72.8311, 21.1702];
 
-    map = L.map('map', { scrollWheelZoom: true }).setView(center, 14);
-    if (pts.length) {
-      map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 17 });
-    }
-    renderMap();
+    map = new maplibregl.Map({
+      container: 'map',
+      style: MAP3D_CFG.styleUrl,
+      center: center,
+      zoom: MAP3D_CFG.defaults.zoom,
+      pitch: MAP3D_CFG.defaults.pitch,
+      bearing: MAP3D_CFG.defaults.bearing,
+      maxPitch: 85,
+      scrollZoom: true,
+      canvasContextAttributes: { antialias: true },
+    });
+
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
+
+    map.on('load', function () {
+      enhanceMap3dExport(map, { basemap: basemap, terrainEnabled: terrainEnabled, buildingsEnabled: buildingsEnabled });
+      savedView = {
+        center: center.slice(),
+        zoom: map.getZoom(),
+        pitch: MAP3D_CFG.defaults.pitch,
+        bearing: MAP3D_CFG.defaults.bearing,
+      };
+      if (pts.length) {
+        var bounds = new maplibregl.LngLatBounds();
+        pts.forEach(function (p) { bounds.extend([p[1], p[0]]); });
+        map.fitBounds(bounds, { padding: 40, maxZoom: MAP3D_CFG.defaults.fitBoundsMaxZoom, duration: 0 });
+        savedView.center = map.getCenter().toArray();
+        savedView.zoom = map.getZoom();
+      }
+      renderMap();
+    });
   }
 
   document.getElementById('btn-basemap').addEventListener('click', function () {
@@ -318,11 +486,43 @@ const EXPORT_VIEWER_SCRIPT = `
     renderMap();
   });
 
+  document.getElementById('btn-terrain').addEventListener('click', function () {
+    terrainEnabled = !terrainEnabled;
+    this.textContent = terrainEnabled ? 'Terrain on' : 'Terrain off';
+    renderMap();
+  });
+
+  document.getElementById('btn-buildings').addEventListener('click', function () {
+    buildingsEnabled = !buildingsEnabled;
+    this.textContent = buildingsEnabled ? 'Buildings on' : 'Buildings off';
+    renderMap();
+  });
+
+  document.getElementById('btn-reset3d').addEventListener('click', function () {
+    if (!map || !savedView) return;
+    map.easeTo({
+      center: savedView.center,
+      zoom: savedView.zoom,
+      pitch: savedView.pitch,
+      bearing: savedView.bearing,
+      duration: 600,
+    });
+  });
+
+  document.getElementById('det-table-body').addEventListener('click', function (e) {
+    const row = e.target.closest('tr[data-class]');
+    if (!row) return;
+    const cls = row.getAttribute('data-class');
+    if (!cls) return;
+    toggleFilterClass(cls);
+  });
+
   initFilters();
   initMap();
   renderTable();
 })();
 `
+}
 
 const HTML_SHELL = `<!DOCTYPE html>
 <html lang="en">
@@ -330,7 +530,7 @@ const HTML_SHELL = `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GSV Map Detection — __SESSION_TITLE__</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="" />
   <style>
     :root {
       --bg: #0a0e14;
@@ -538,6 +738,9 @@ const HTML_SHELL = `<!DOCTYPE html>
       <div class="map-wrap">
         <div id="map"></div>
         <div class="map-controls">
+          <button type="button" class="map-toggle" id="btn-reset3d">Reset 3D view</button>
+          <button type="button" class="map-toggle" id="btn-terrain">Terrain on</button>
+          <button type="button" class="map-toggle" id="btn-buildings">Buildings on</button>
           <button type="button" class="map-toggle" id="btn-rays">Show sight lines</button>
           <button type="button" class="map-toggle" id="btn-basemap">Satellite</button>
         </div>
@@ -558,6 +761,7 @@ const HTML_SHELL = `<!DOCTYPE html>
           <div class="pano-hud" id="pano-hud"></div>
         </div>
         <div class="table-wrap">
+          <div id="filter-banner" style="display:none;padding:8px 12px;font-size:11px;color:#05cb63;border-bottom:1px solid #1e2a3a;background:rgba(5,203,99,0.08);"></div>
           <table>
             <thead>
               <tr>
@@ -578,18 +782,20 @@ const HTML_SHELL = `<!DOCTYPE html>
   </div>
   <footer>__FOOTER__</footer>
   <script type="application/json" id="export-data">__EXPORT_DATA__</script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin=""></script>
   <script>__VIEWER_SCRIPT__</script>
 </body>
 </html>`
 
 function locationImageryFromResponse(locationId, response, fallbackLat, fallbackLng) {
   const panoViews = response.pano_views || [1, 2, 3, 4]
+  const { viewTiles } = buildViewTilesFromResponse(locationId, response)
   return {
     lat: response.lat ?? fallbackLat,
     lng: response.lng ?? fallbackLng,
     pano_views: panoViews,
     panorama_image_b64: response.panorama_image_b64 || '',
+    view_tiles: viewTiles,
   }
 }
 
@@ -601,7 +807,9 @@ async function fetchLocationImagery(locationId, fallbackLat, fallbackLng) {
     err.locationId = locationId
     throw err
   }
-  return locationImageryFromResponse(locationId, data, fallbackLat, fallbackLng)
+  const entry = locationImageryFromResponse(locationId, data, fallbackLat, fallbackLng)
+  entry.view_tiles = await enrichImageryWithViewTiles(locationId, data, entry.view_tiles)
+  return entry
 }
 
 export async function collectSessionImagery(session, existingCache = {}, onProgress) {
@@ -614,7 +822,9 @@ export async function collectSessionImagery(session, existingCache = {}, onProgr
     try {
       const cached = existingCache[loc.id]
       if (cached?.panorama_image_b64) {
-        imagery[String(loc.id)] = locationImageryFromResponse(loc.id, cached, loc.lat, loc.lng)
+        const entry = locationImageryFromResponse(loc.id, cached, loc.lat, loc.lng)
+        entry.view_tiles = await enrichImageryWithViewTiles(loc.id, cached, entry.view_tiles)
+        imagery[String(loc.id)] = entry
       } else {
         imagery[String(loc.id)] = await fetchLocationImagery(loc.id, loc.lat, loc.lng)
       }
@@ -637,9 +847,18 @@ export async function collectSessionImagery(session, existingCache = {}, onProgr
 }
 
 export function buildGsvMapExportHtml(session, imageryByLocation) {
-  const totalObjects = Object.values(session.aggregate_counts || {}).reduce((a, b) => a + b, 0)
+  const officialCounts = session.official_counts || session.aggregate_counts || {}
+  const verifiedCounts = session.verified_counts || {}
+  const totalOfficial = Object.values(officialCounts).reduce((a, b) => a + b, 0)
+  const totalVerified = Object.values(verifiedCounts).reduce((a, b) => a + b, 0)
+  const estimated = Math.max(0, totalOfficial - totalVerified)
   const shortId = (session.sessionId || 'session').slice(0, 8)
   const generatedAt = new Date().toISOString()
+
+  const exportDetections = filterMapMarkers(session.detections || [], {
+    staticOnly: true,
+    verifiedOnly: true,
+  })
 
   const exportData = {
     session: {
@@ -647,8 +866,12 @@ export function buildGsvMapExportHtml(session, imageryByLocation) {
       startedAt: session.startedAt,
       endedAt: session.endedAt,
       locations: session.locations,
-      detections: session.detections,
-      aggregate_counts: session.aggregate_counts,
+      detections: exportDetections,
+      raw_detections: session.raw_detections || [],
+      aggregate_counts: officialCounts,
+      official_counts: officialCounts,
+      verified_counts: verifiedCounts,
+      geo_pipeline_version: session.geo_pipeline_version || 1,
     },
     imagery: imageryByLocation,
     classColors: CLASS_COLORS,
@@ -666,15 +889,18 @@ export function buildGsvMapExportHtml(session, imageryByLocation) {
     return `${mins} min`
   })()
 
-  const subtitle = `${session.locations.length} locations · ${totalObjects} objects · ${durationMins}`
-  const footer = `Generated ${generatedAt.slice(0, 19).replace('T', ' ')} UTC · Session ${shortId} · Map tiles © OpenStreetMap / Esri · Imagery embedded offline`
+  const subtitle = `${session.locations.length} locations · ${totalVerified || totalOfficial} verified${estimated > 0 ? ` · ${estimated} estimated` : ''} · ${durationMins}`
+  const methodology = session.geo_pipeline_version >= 2
+    ? ' · Assets deduplicated per location; traffic signals snapped to intersection corners where OSM/nav data available'
+    : ''
+  const footer = `Generated ${generatedAt.slice(0, 19).replace('T', ' ')} UTC · Session ${shortId} · Map tiles © OpenStreetMap / Esri · Imagery embedded offline${methodology}`
 
   return HTML_SHELL
     .replace('__SESSION_TITLE__', shortId)
     .replace('__SESSION_SUBTITLE__', subtitle)
     .replace('__FOOTER__', footer)
     .replace('__EXPORT_DATA__', JSON.stringify(exportData))
-    .replace('__VIEWER_SCRIPT__', EXPORT_VIEWER_SCRIPT)
+    .replace('__VIEWER_SCRIPT__', buildExportViewerScript())
 }
 
 export function downloadGsvMapExportHtml(session, imageryByLocation) {

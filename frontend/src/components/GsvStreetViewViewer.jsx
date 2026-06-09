@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { gsvContinuedImageUrl } from '../api'
+import { useFilteredPanorama } from '../lib/gsvPanoramaClassFilter'
 import GsvPanoramaViewer from './GsvPanoramaViewer'
 
 const ARROW_STYLE = {
@@ -53,10 +54,16 @@ export default function GsvStreetViewViewer({
   detecting,
   onNavigate,
   onForwardClickZone,
+  filterClass,
 }) {
   const isPanoramaMode = view >= 1 && view <= 4
   const panoViews = detectionResult?.pano_views || nav?.side_views || [1, 2, 3, 4]
   const scrollView = activeView ?? view
+  const { displayB64, rebuilding } = useFilteredPanorama({
+    detectionResult,
+    filterClass,
+    locationId,
+  })
 
   const handleKeyDown = useCallback(
     (e) => {
@@ -96,10 +103,13 @@ export default function GsvStreetViewViewer({
       <div style={{ position: 'relative', flex: 1, minHeight: 280, display: 'flex', flexDirection: 'column' }}>
         <GsvPanoramaViewer
           locationId={locationId}
-          panoramaImageB64={detectionResult?.panorama_image_b64}
+          panoramaImageB64={
+            filterClass ? displayB64 : detectionResult?.panorama_image_b64
+          }
           activeView={scrollView}
           panoViews={panoViews}
           detecting={detecting}
+          rebuilding={rebuilding}
           onNavigate={onNavigate}
           nav={nav}
         />

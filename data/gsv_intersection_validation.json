@@ -1,0 +1,20 @@
+{
+  "total": 2,
+  "sample_ids": [790, 493],
+  "locations": [
+    {
+      "id": 790,
+      "lat": 40.440818,
+      "lng": -80.0005,
+      "compass": 117.19,
+      "validation_fixture": "backend/tests/fixtures/gsv_geo/validation_zones.json"
+    },
+    {
+      "id": 493,
+      "lat": 40.444502,
+      "lng": -80.001,
+      "compass": 117.19,
+      "validation_fixture": "backend/tests/fixtures/gsv_geo/validation_zones.json"
+    }
+  ]
+}

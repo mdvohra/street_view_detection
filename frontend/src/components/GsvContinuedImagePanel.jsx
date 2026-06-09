@@ -15,6 +15,7 @@ export default function GsvContinuedImagePanel({
   onViewChange,
   detectionResult,
   detecting,
+  filterClass,
 }) {
   if (selectedId == null || !point) {
     return (
@@ -38,7 +39,10 @@ export default function GsvContinuedImagePanel({
   const filename = `${String(selectedId).padStart(6, '0')}_${view}.jpg`
   const isPanorama = detectionResult?.panorama === true
   const panoViewCount = detectionResult?.pano_views?.length || 4
-  const total = Object.values(detectionResult?.counts || {}).reduce((a, b) => a + b, 0)
+  const counts = detectionResult?.counts || {}
+  const total = filterClass
+    ? counts[filterClass] || 0
+    : Object.values(counts).reduce((a, b) => a + b, 0)
   const modelStatus = detectionResult?.model_status || []
   const modelsOk = modelStatus.filter((m) => m.status === 'ok').length
   const modelsTotal = modelStatus.length
@@ -72,9 +76,13 @@ export default function GsvContinuedImagePanel({
         {!detecting && detectionResult && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>
-              {isPanorama
-                ? `${total} detected across ${panoViewCount} views`
-                : `${total} detected`}
+              {filterClass
+                ? isPanorama
+                  ? `${total} ${filterClass} across ${panoViewCount} views`
+                  : `${total} ${filterClass}`
+                : isPanorama
+                  ? `${total} detected across ${panoViewCount} views`
+                  : `${total} detected`}
             </div>
             {modelsTotal > 0 && (
               <div

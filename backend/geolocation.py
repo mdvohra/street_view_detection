@@ -22,14 +22,20 @@ CAMERA_ALTITUDE_M = float(os.getenv("CAMERA_ALTITUDE_M", "2.5"))
 ASSUMED_POLE_HEIGHT_M = float(os.getenv("ASSUMED_POLE_HEIGHT_M", "8"))
 ASSUMED_STREET_LIGHT_HEIGHT_M = float(os.getenv("ASSUMED_STREET_LIGHT_HEIGHT_M", "6"))
 ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M = float(os.getenv("ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M", "5"))
+ASSUMED_TRAFFIC_SIGNAL_HEAD_HEIGHT_M = float(os.getenv("ASSUMED_TRAFFIC_SIGNAL_HEAD_HEIGHT_M", "1.2"))
+ASSUMED_TRAFFIC_SIGNAL_MOUNT_HEIGHT_M = float(os.getenv("ASSUMED_TRAFFIC_SIGNAL_MOUNT_HEIGHT_M", "5.5"))
+TRAFFIC_SIGNAL_POLE_EXTEND_RATIO = float(os.getenv("TRAFFIC_SIGNAL_POLE_EXTEND_RATIO", "2.0"))
+GEOLOCATE_MIN_BBOX_WIDTH_FOR_QUALITY = int(os.getenv("GEOLOCATE_MIN_BBOX_WIDTH_FOR_QUALITY", "12"))
 
 STATIC_GROUND_CLASSES = frozenset({"Pole", "Street Light", "Traffic Signal", "Traffic Sign"})
+POLE_BASE_ANCHOR_CLASSES = frozenset({"Pole", "Street Light"})
+SIGNAL_HEAD_ANCHOR_CLASSES = frozenset({"Traffic Signal", "Traffic Sign"})
 
 ASSUMED_OBJECT_HEIGHT_M: dict[str, float] = {
     "Pole": ASSUMED_POLE_HEIGHT_M,
     "Street Light": ASSUMED_STREET_LIGHT_HEIGHT_M,
-    "Traffic Signal": ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M,
-    "Traffic Sign": ASSUMED_TRAFFIC_SIGNAL_HEIGHT_M,
+    "Traffic Signal": ASSUMED_TRAFFIC_SIGNAL_HEAD_HEIGHT_M,
+    "Traffic Sign": ASSUMED_TRAFFIC_SIGNAL_HEAD_HEIGHT_M,
 }
 
 def geo_accuracy_label(method: str | None, confidence: int | None = None) -> str:
@@ -47,6 +53,15 @@ def geo_accuracy_label(method: str | None, confidence: int | None = None) -> str
         return "Estimated from photo and object size"
     if method == "bearing_single":
         return "Estimated from photo"
+    if method == "gsv_horizon_ray":
+        return "Estimated from photo (horizon ray)"
+    if method == "road_edge_snap":
+        return "Snapped to road edge"
+    if method == "intersection_corner_snap":
+        return "Snapped to intersection corner"
+    if method == "gsv_lob_triangulation":
+        views = int(confidence or 0)
+        return f"Multi-location estimate ({views} drive positions)" if views else "Multi-location estimate"
     return "Location pending"
 
 
@@ -74,10 +89,13 @@ def bbox_height_px(det: dict) -> int:
 
 
 def geo_anchor_pixel(det: dict, class_name: str) -> tuple[int, int]:
-    """Ground-contact pixel for vertical objects; bbox center otherwise."""
+    """Ground-contact pixel for vertical objects; signal head extrapolated below bbox."""
     bbox = det.get("bbox") or []
     xc = bbox_center_x(det)
-    if len(bbox) >= 4 and class_name in STATIC_GROUND_CLASSES:
+    if len(bbox) >= 4 and class_name in SIGNAL_HEAD_ANCHOR_CLASSES:
+        head_h = max(1, int(bbox[3] - bbox[1]))
+        y = int(bbox[3] + TRAFFIC_SIGNAL_POLE_EXTEND_RATIO * head_h)
+    elif len(bbox) >= 4 and class_name in POLE_BASE_ANCHOR_CLASSES:
         y = int(bbox[3])
     elif det.get("y_center") is not None:
         y = int(det["y_center"])
@@ -86,6 +104,28 @@ def geo_anchor_pixel(det: dict, class_name: str) -> tuple[int, int]:
     else:
         y = 0
     return xc, y
+
+
+def infer_geo_quality(det: dict) -> str:
+    """Quality tier for a geo-enriched detection."""
+    if det.get("geo_lat") is None:
+        return "skipped"
+    method = det.get("geo_method")
+    if method in (
+        "gsv_lob_triangulation",
+        "intersection_corner_snap",
+        "road_edge_snap",
+        "lob_triangulation",
+        "camera_ray_3d",
+    ):
+        return "high"
+    if method == "gsv_horizon_ray":
+        return "high"
+    if method == "bearing_size" and bbox_width_px(det) >= GEOLOCATE_MIN_BBOX_WIDTH_FOR_QUALITY:
+        return "high"
+    if method == "bearing_single":
+        return "low"
+    return "high" if method == "bearing_size" else "low"
 
 
 def horizontal_fov_deg(focal_px: float, image_width: int) -> float:
@@ -291,6 +331,7 @@ def enrich_detection_geo(
     camera_focal_px: float | None = None,
     source_width: int | None = None,
     computed_rotation: list | None = None,
+    gsv_mode: bool = False,
 ) -> dict:
     """Add bearing and geo estimate to one detection dict."""
     out = deepcopy(det)
@@ -313,7 +354,9 @@ def enrich_detection_geo(
     if camera_focal_px:
         focal_thumb = scaled_focal_px(camera_focal_px, source_width, image_width)
 
-    if USE_3D_CAMERA_RAY and focal_thumb and focal_thumb > 0:
+    # 3D ray requires Mapillary computed_rotation; GSV tiles lack it and extrapolated
+    # signal anchors otherwise land on the road centerline a few metres ahead.
+    if USE_3D_CAMERA_RAY and computed_rotation and focal_thumb and focal_thumb > 0:
         import camera_ray
 
         ray_result = camera_ray.detection_geo_from_camera_ray(
@@ -332,6 +375,7 @@ def enrich_detection_geo(
             out.update(ray_result)
             out["geo_anchor_x"] = anchor_x
             out["geo_anchor_y"] = anchor_y
+            out["geo_quality"] = infer_geo_quality(out)
             return out
 
     hfov = h_fov_deg if h_fov_deg is not None else effective_h_fov_deg(
@@ -339,6 +383,27 @@ def enrich_detection_geo(
         camera_focal_px=camera_focal_px,
         source_width=source_width,
     )
+
+    if gsv_mode and focal_thumb and focal_thumb > 0 and image_height > 0:
+        import gsv_camera_ray
+
+        horizon = gsv_camera_ray.ground_hit_from_horizon(
+            anchor_x=float(anchor_x),
+            anchor_y=float(anchor_y),
+            camera_lat=camera_lat,
+            camera_lng=camera_lng,
+            compass_angle=float(compass_angle),
+            image_width=image_width,
+            image_height=image_height or image_width,
+            focal_px=focal_thumb,
+            h_fov_deg=hfov,
+        )
+        if horizon:
+            out.update(horizon)
+            out["geo_anchor_x"] = anchor_x
+            out["geo_anchor_y"] = anchor_y
+            out["geo_quality"] = infer_geo_quality(out)
+            return out
 
     brg = detection_bearing(compass_angle, anchor_x, image_width, hfov)
 
@@ -349,6 +414,14 @@ def enrich_detection_geo(
         if est is not None:
             distance_m = est
             geo_method = "bearing_size"
+    if class_name in SIGNAL_HEAD_ANCHOR_CLASSES and geo_method == "bearing_size":
+        mount_h = ASSUMED_TRAFFIC_SIGNAL_MOUNT_HEIGHT_M
+        head_h = ASSUMED_OBJECT_HEIGHT_M.get(class_name, mount_h)
+        if head_h > 0 and mount_h > head_h:
+            distance_m = min(
+                LOB_MAX_LENGTH_M,
+                max(MIN_OBJECT_DISTANCE_M, distance_m * (mount_h / head_h)),
+            )
 
     geo_lat, geo_lng = destination_point(camera_lat, camera_lng, brg, distance_m)
     ray_end_lat, ray_end_lng = lob_endpoint(camera_lat, camera_lng, brg, LOB_MAX_LENGTH_M)
@@ -361,6 +434,7 @@ def enrich_detection_geo(
     out["ray_end_lat"] = round(ray_end_lat, 7)
     out["ray_end_lng"] = round(ray_end_lng, 7)
     out["h_fov_deg"] = round(hfov, 2)
+    out["geo_quality"] = infer_geo_quality(out)
     return out
 
 
@@ -376,6 +450,7 @@ def enrich_detections_with_geo(
     source_width: int | None = None,
     source_height: int | None = None,
     computed_rotation: list | None = None,
+    gsv_mode: bool = False,
 ) -> list[dict]:
     if camera_lat is None or camera_lng is None or not image_width:
         return detections
@@ -402,6 +477,7 @@ def enrich_detections_with_geo(
             camera_focal_px=camera_focal_px,
             source_width=source_width,
             computed_rotation=computed_rotation,
+            gsv_mode=gsv_mode,
         )
         for d in detections
     ]
@@ -437,6 +513,73 @@ def cluster_centroid(cluster: list[tuple[float, float]]) -> tuple[float, float]:
 def lob_angle_difference(b1: float, b2: float) -> float:
     d = abs(b1 - b2) % 360.0
     return min(d, 360.0 - d)
+
+
+def point_to_segment_m(
+    plat: float,
+    plng: float,
+    a_lat: float,
+    a_lng: float,
+    b_lat: float,
+    b_lng: float,
+) -> float:
+    """Approximate cross-track distance from point to segment AB (local plane)."""
+    ref_lat = (a_lat + b_lat) / 2.0
+    m_lat = 111320.0
+    m_lng = 111320.0 * math.cos(math.radians(ref_lat))
+
+    bx = (b_lng - a_lng) * m_lng
+    by = (b_lat - a_lat) * m_lat
+    px = (plng - a_lng) * m_lng
+    py = (plat - a_lat) * m_lat
+
+    seg_len_sq = bx * bx + by * by
+    if seg_len_sq < 1e-6:
+        return math.hypot(px, py)
+
+    t = max(0.0, min(1.0, (px * bx + py * by) / seg_len_sq))
+    cx = t * bx
+    cy = t * by
+    return math.hypot(px - cx, py - cy)
+
+
+def project_point_onto_segment(
+    plat: float,
+    plng: float,
+    a_lat: float,
+    a_lng: float,
+    b_lat: float,
+    b_lng: float,
+) -> tuple[float, float, float]:
+    """Return projected (lat, lng) on segment AB and cross-track distance in metres."""
+    ref_lat = (a_lat + b_lat) / 2.0
+    m_lat = 111320.0
+    m_lng = 111320.0 * math.cos(math.radians(ref_lat))
+
+    bx = (b_lng - a_lng) * m_lng
+    by = (b_lat - a_lat) * m_lat
+    px = (plng - a_lng) * m_lng
+    py = (plat - a_lat) * m_lat
+
+    seg_len_sq = bx * bx + by * by
+    if seg_len_sq < 1e-6:
+        return a_lat, a_lng, math.hypot(px, py)
+
+    t = max(0.0, min(1.0, (px * bx + py * by) / seg_len_sq))
+    proj_lng = a_lng + (t * bx) / m_lng
+    proj_lat = a_lat + (t * by) / m_lat
+    cross = math.hypot(px - t * bx, py - t * by)
+    return proj_lat, proj_lng, cross
+
+
+def segment_bearing_deg(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
+    """Bearing from A to B in degrees from north."""
+    d_lng = math.radians(b_lng - a_lng)
+    lat1 = math.radians(a_lat)
+    lat2 = math.radians(b_lat)
+    y = math.sin(d_lng) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(d_lng)
+    return normalize_bearing(math.degrees(math.atan2(y, x)))
 
 
 def row_camera_kwargs(row: dict) -> dict[str, Any]:

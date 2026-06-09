@@ -36,11 +36,50 @@ def test_geo_anchor_bottom_for_pole():
     assert y == 400
 
 
+def test_geo_anchor_below_bbox_for_traffic_signal():
+    det = {"class": "Traffic Signal", "bbox": [100, 200, 180, 280], "x_center": 140}
+    x, y = geo.geo_anchor_pixel(det, "Traffic Signal")
+    assert x == 140
+    assert y > 280
+    assert y == 280 + int(geo.TRAFFIC_SIGNAL_POLE_EXTEND_RATIO * 80)
+
+
+def test_estimate_distance_differs_signal_vs_pole():
+    det = {"class": "Traffic Signal", "bbox": [0, 100, 40, 300]}
+    pole_det = {"class": "Pole", "bbox": [0, 100, 40, 300]}
+    signal_dist = geo.estimate_distance_from_bbox(det, "Traffic Signal", focal_px=500.0, image_height=768)
+    pole_dist = geo.estimate_distance_from_bbox(pole_det, "Pole", focal_px=500.0, image_height=768)
+    assert signal_dist is not None
+    assert pole_dist is not None
+    assert signal_dist < pole_dist
+
+
 def test_estimate_distance_from_bbox():
     det = {"class": "Pole", "bbox": [0, 100, 40, 300]}
     dist = geo.estimate_distance_from_bbox(det, "Pole", focal_px=500.0, image_height=768)
     assert dist is not None
     assert geo.MIN_OBJECT_DISTANCE_M <= dist <= geo.LOB_MAX_LENGTH_M
+
+
+def test_infer_geo_quality_gsv_horizon():
+    assert geo.infer_geo_quality({"geo_lat": 1.0, "geo_method": "gsv_horizon_ray"}) == "high"
+
+
+def test_infer_geo_quality():
+    assert geo.infer_geo_quality({"geo_lat": 1.0, "geo_method": "bearing_single"}) == "low"
+    assert (
+        geo.infer_geo_quality(
+            {"geo_lat": 1.0, "geo_method": "bearing_size", "bbox": [0, 0, 20, 40]}
+        )
+        == "high"
+    )
+
+
+def test_project_point_onto_segment():
+    lat, lng, cross = geo.project_point_onto_segment(0.0, 0.5, 0.0, 0.0, 0.0, 1.0)
+    assert abs(lat) < 0.001
+    assert abs(lng - 0.5) < 0.01
+    assert cross < 0.01
 
 
 def test_destination_point_north():
@@ -72,6 +111,23 @@ def test_intersect_lob_rejects_backward_rays():
 def test_geo_accuracy_label():
     assert "street views" in geo.geo_accuracy_label("lob_triangulation", 3)
     assert geo.geo_accuracy_label("bearing_single") == "Estimated from photo"
+    assert geo.geo_accuracy_label("intersection_corner_snap") == "Snapped to intersection corner"
+
+
+def test_gsv_skips_camera_ray_without_rotation():
+    det = {"class": "Traffic Signal", "bbox": [900, 180, 980, 280], "x_center": 940}
+    out = geo.enrich_detection_geo(
+        det,
+        camera_lat=40.440818,
+        camera_lng=-80.0005,
+        compass_angle=242.81,
+        image_width=1280,
+        image_height=720,
+        camera_focal_px=640.0,
+        source_width=1280,
+        computed_rotation=None,
+    )
+    assert out.get("geo_method") != "camera_ray_3d"
 
 
 def test_enrich_with_per_image_fov():
@@ -89,3 +145,4 @@ def test_enrich_with_per_image_fov():
     assert out.get("bearing_deg") is not None
     assert out.get("geo_lat") is not None
     assert out.get("ray_end_lat") is not None
+    assert out.get("geo_quality") in ("high", "low")

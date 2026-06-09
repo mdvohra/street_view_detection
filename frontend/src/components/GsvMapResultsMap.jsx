@@ -64,6 +64,10 @@ export default function GsvMapResultsMap({
   onBasemapToggle,
   showRays = false,
   onToggleRays,
+  showRawDetections = false,
+  onToggleRawDetections,
+  showVerifiedOnly = true,
+  onToggleVerifiedOnly,
 }) {
   const activeCamera = cameraMarkers.find((m) => m.id === selectedLocationId)
   const activeDetection = detectionMarkers.find((d) => d.detection_id === selectedDetectionId)
@@ -166,11 +170,12 @@ export default function GsvMapResultsMap({
 
         {detectionMarkers.map((d) => {
           const selected = d.detection_id === selectedDetectionId
+          const estimated = d.tier === 'estimated' || d.geo_quality === 'low'
           return (
             <Marker
               key={d.detection_id}
               position={[d.lat, d.lng]}
-              icon={makeDetectionSymbolIcon(d.class, selected)}
+              icon={makeDetectionSymbolIcon(d.class, selected, estimated)}
               zIndexOffset={selected ? 900 : 500}
               eventHandlers={{
                 click: () => onSelectDetection?.(d.detection_id),
@@ -181,6 +186,16 @@ export default function GsvMapResultsMap({
       </MapContainer>
 
       <div className="dashboard-map-controls">
+        {onToggleRawDetections && (
+          <button type="button" className="dashboard-map-toggle" onClick={onToggleRawDetections}>
+            {showRawDetections ? 'Official pins' : 'Raw detections (debug)'}
+          </button>
+        )}
+        {onToggleVerifiedOnly && !showRawDetections && (
+          <button type="button" className="dashboard-map-toggle" onClick={onToggleVerifiedOnly}>
+            {showVerifiedOnly ? 'Show estimated' : 'Verified only'}
+          </button>
+        )}
         {onToggleRays && (
           <button type="button" className="dashboard-map-toggle" onClick={onToggleRays}>
             {showRays ? 'Hide sight lines' : 'Show sight lines'}

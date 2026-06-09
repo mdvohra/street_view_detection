@@ -1,0 +1,43 @@
+{
+  "description": "Manual validation zones for PitOrlManh intersections (lat/lng boxes).",
+  "locations": [
+    {
+      "location_id": 790,
+      "lat": 40.440818,
+      "lng": -80.0005,
+      "expected_zones": {
+        "Traffic Signal": {
+          "min_lat": 40.44065,
+          "max_lat": 40.44095,
+          "min_lng": -80.0008,
+          "max_lng": -80.0002
+        },
+        "Street Light": {
+          "min_lat": 40.4407,
+          "max_lat": 40.4409,
+          "min_lng": -80.0007,
+          "max_lng": -80.0003
+        }
+      }
+    },
+    {
+      "location_id": 493,
+      "lat": 40.444502,
+      "lng": -80.001,
+      "expected_zones": {
+        "Traffic Signal": {
+          "min_lat": 40.44435,
+          "max_lat": 40.44465,
+          "min_lng": -80.0012,
+          "max_lng": -80.0007
+        },
+        "Street Light": {
+          "min_lat": 40.4444,
+          "max_lat": 40.4446,
+          "min_lng": -80.0011,
+          "max_lng": -80.0008
+        }
+      }
+    }
+  ]
+}

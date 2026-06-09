@@ -8,19 +8,25 @@ import {
   getGsvContinuedMeta,
   getGsvContinuedNav,
   getGsvContinuedPoints,
+  refineGsvSession,
 } from '../api'
 import GsvCoordSearch from '../components/GsvCoordSearch'
 import GsvContinuedImagePanel from '../components/GsvContinuedImagePanel'
 import GsvContinuedDetectionTable from '../components/GsvContinuedDetectionTable'
 import GsvStreetViewViewer from '../components/GsvStreetViewViewer'
+import GsvContinued3DMap from '../components/GsvContinued3DMap'
 import DatasetMap from '../components/DatasetMap'
+import MapModeToggle from '../components/MapModeToggle'
 import {
   appendLocationResult,
+  applySessionRefine,
+  buildRefinePayload,
   createSession,
   finalizeSession,
   sessionHasGeoDetections,
   sessionLocationCount,
   sessionObjectCount,
+  sessionVerifiedCount,
 } from '../lib/gsvMapSession'
 import '../dashboard.css'
 
@@ -38,10 +44,12 @@ export default function GsvContinuedPage() {
   const [detectionResult, setDetectionResult] = useState(null)
   const [detecting, setDetecting] = useState(false)
   const [basemap, setBasemap] = useState('street')
+  const [map3dEnabled, setMap3dEnabled] = useState(false)
   const [showMap, setShowMap] = useState(true)
   const [mapSessionActive, setMapSessionActive] = useState(false)
   const [mapSession, setMapSession] = useState(null)
   const [selectedSessionDetectionId, setSelectedSessionDetectionId] = useState(null)
+  const [filterClass, setFilterClass] = useState(null)
   const mapSessionActiveRef = useRef(false)
 
   useEffect(() => {
@@ -186,10 +194,19 @@ export default function GsvContinuedPage() {
     }
   }, [selectedId])
 
-  const sessionDetectionMarkers = useMemo(
-    () => mapSession?.detections || [],
-    [mapSession]
-  )
+  useEffect(() => {
+    setFilterClass(null)
+  }, [selectedId])
+
+  const sessionDetectionMarkers = useMemo(() => {
+    const list = mapSession?.detections || []
+    if (!filterClass) return list
+    return list.filter((d) => d.class === filterClass)
+  }, [mapSession, filterClass])
+
+  const handleFilterClassChange = useCallback((cls) => {
+    setFilterClass(cls)
+  }, [])
 
   const handleStartMapSession = useCallback(() => {
     let session = createSession()
@@ -209,13 +226,23 @@ export default function GsvContinuedPage() {
     toast('Map detection session cancelled')
   }, [])
 
-  const handleEndMapSession = useCallback(() => {
+  const handleEndMapSession = useCallback(async () => {
     if (!mapSession) return
     if (!sessionHasGeoDetections(mapSession)) {
       toast.error('No detections with map coordinates yet — visit locations with side-view detections')
       return
     }
-    const finalized = finalizeSession(mapSession)
+    let sessionToSave = mapSession
+    if ((mapSession.locations?.length ?? 0) > 1) {
+      try {
+        const payload = buildRefinePayload(mapSession)
+        const res = await refineGsvSession(payload)
+        sessionToSave = applySessionRefine(mapSession, res.data)
+      } catch (err) {
+        toast.error(apiErrorMessage(err, 'Session refine failed — saving per-location estimates'))
+      }
+    }
+    const finalized = finalizeSession(sessionToSave)
     setMapSessionActive(false)
     setMapSession(null)
     navigate(`/gsv-continued/map-results/${finalized.sessionId}`)
@@ -257,7 +284,7 @@ export default function GsvContinuedPage() {
           {mapSessionActive ? (
             <>
               <span className="gsv-session-active">
-                Recording · {sessionLocationCount(mapSession)} loc · {sessionObjectCount(mapSession)} obj
+                Recording · {sessionLocationCount(mapSession)} loc · {sessionVerifiedCount(mapSession) || sessionObjectCount(mapSession)} verified
               </span>
               <button
                 type="button"
@@ -329,21 +356,45 @@ export default function GsvContinuedPage() {
                 Loading map…
               </div>
             ) : (
-              <DatasetMap
-                points={points}
-                selectedId={selectedId}
-                onSelectPoint={handleSelectPoint}
-                basemap={basemap}
-                onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
-                trailPoints={trailPoints}
-                compact
-                selectedPinColor="#EF4444"
-                selectedPinSize={18}
-                detectionMarkers={mapSessionActive ? sessionDetectionMarkers : []}
-                selectedDetectionId={selectedSessionDetectionId}
-                onSelectDetection={setSelectedSessionDetectionId}
-                showSessionLegend={mapSessionActive && sessionDetectionMarkers.length > 0}
-              />
+              <div className="gsv-map-shell">
+                {map3dEnabled ? (
+                  <GsvContinued3DMap
+                    points={points}
+                    selectedId={selectedId}
+                    onSelectPoint={handleSelectPoint}
+                    basemap={basemap}
+                    onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
+                    trailPoints={trailPoints}
+                    compact
+                    selectedPinColor="#EF4444"
+                    selectedPinSize={18}
+                    detectionMarkers={mapSessionActive ? sessionDetectionMarkers : []}
+                    selectedDetectionId={selectedSessionDetectionId}
+                    onSelectDetection={setSelectedSessionDetectionId}
+                    showSessionLegend={mapSessionActive && sessionDetectionMarkers.length > 0}
+                  />
+                ) : (
+                  <DatasetMap
+                    points={points}
+                    selectedId={selectedId}
+                    onSelectPoint={handleSelectPoint}
+                    basemap={basemap}
+                    onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
+                    trailPoints={trailPoints}
+                    compact
+                    selectedPinColor="#EF4444"
+                    selectedPinSize={18}
+                    detectionMarkers={mapSessionActive ? sessionDetectionMarkers : []}
+                    selectedDetectionId={selectedSessionDetectionId}
+                    onSelectDetection={setSelectedSessionDetectionId}
+                    showSessionLegend={mapSessionActive && sessionDetectionMarkers.length > 0}
+                  />
+                )}
+                <MapModeToggle
+                  map3dEnabled={map3dEnabled}
+                  onToggle={() => setMap3dEnabled((v) => !v)}
+                />
+              </div>
             )}
           </section>
         )}
@@ -371,6 +422,7 @@ export default function GsvContinuedPage() {
                 nav={navData}
                 detectionResult={detectionResult}
                 detecting={detecting}
+                filterClass={filterClass}
                 onNavigate={handleNavigate}
                 onForwardClickZone={() => handleNavigate('forward')}
               />
@@ -393,12 +445,15 @@ export default function GsvContinuedPage() {
                   onViewChange={handleViewChange}
                   detectionResult={detectionResult}
                   detecting={detecting}
+                  filterClass={filterClass}
                 />
                 <GsvContinuedDetectionTable
                   detectionResult={detectionResult}
                   detecting={detecting}
                   cameraLat={selectedPoint.lat}
                   cameraLng={selectedPoint.lng}
+                  filterClass={filterClass}
+                  onFilterClassChange={handleFilterClassChange}
                 />
               </div>
             </>

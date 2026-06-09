@@ -8,6 +8,7 @@ export default function GsvPanoramaViewer({
   activeView,
   panoViews = [1, 2, 3, 4],
   detecting,
+  rebuilding = false,
   onNavigate,
   nav,
 }) {
@@ -116,6 +117,8 @@ export default function GsvPanoramaViewer({
           <div className="gsv-pano-loading">
             Building 360° panorama… views 1–4
           </div>
+        ) : rebuilding && !panoramaImageB64 ? (
+          <div className="gsv-pano-loading">Filtering…</div>
         ) : panoramaImageB64 ? (
           <img
             ref={imgRef}
@@ -129,6 +132,26 @@ export default function GsvPanoramaViewer({
           <div className="gsv-pano-loading">No panorama available</div>
         )}
       </div>
+
+      {rebuilding && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            padding: '6px 10px',
+            borderRadius: 6,
+            background: 'rgba(0,0,0,0.65)',
+            color: '#fff',
+            fontSize: 11,
+            fontWeight: 600,
+            zIndex: 4,
+            pointerEvents: 'none',
+          }}
+        >
+          Filtering…
+        </div>
+      )}
 
       {panoramaImageB64 && (
         <button

@@ -9,14 +9,16 @@ import {
 } from '../api'
 import GsvContinuedDetectionTable from '../components/GsvContinuedDetectionTable'
 import GsvContinuedImagePanel from '../components/GsvContinuedImagePanel'
+import GsvMapResults3DMap from '../components/GsvMapResults3DMap'
 import GsvMapResultsMap from '../components/GsvMapResultsMap'
+import MapModeToggle from '../components/MapModeToggle'
 import GsvStreetViewViewer from '../components/GsvStreetViewViewer'
 import { CLASS_META } from '../constants/classes'
 import {
   collectSessionImagery,
   downloadGsvMapExportHtml,
 } from '../lib/gsvMapExportHtml'
-import { loadSession } from '../lib/gsvMapSession'
+import { loadSession, sessionSummaryCounts, filterMapMarkers } from '../lib/gsvMapSession'
 import '../dashboard.css'
 
 export default function GsvMapResultsPage() {
@@ -25,6 +27,7 @@ export default function GsvMapResultsPage() {
   const [session, setSession] = useState(null)
   const [filterClass, setFilterClass] = useState(null)
   const [basemap, setBasemap] = useState('street')
+  const [map3dEnabled, setMap3dEnabled] = useState(false)
   const [showRays, setShowRays] = useState(false)
   const [selectedLocationId, setSelectedLocationId] = useState(null)
   const [selectedDetectionId, setSelectedDetectionId] = useState(null)
@@ -35,6 +38,8 @@ export default function GsvMapResultsPage() {
   const [detectionCache, setDetectionCache] = useState({})
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(null)
+  const [showRawDetections, setShowRawDetections] = useState(false)
+  const [showVerifiedOnly, setShowVerifiedOnly] = useState(true)
 
   useEffect(() => {
     const data = loadSession(sessionId)
@@ -51,14 +56,28 @@ export default function GsvMapResultsPage() {
     setSession(data)
   }, [sessionId, navigate])
 
-  const agg = session?.aggregate_counts || {}
-  const totalObjects = Object.values(agg).reduce((a, b) => a + b, 0)
+  const summary = useMemo(() => sessionSummaryCounts(session || {}), [session])
+  const agg = session?.official_counts || session?.aggregate_counts || {}
+
+  const mapDetections = useMemo(() => {
+    if (showRawDetections && session?.raw_detections?.length) {
+      return filterMapMarkers(session.raw_detections, { verifiedOnly: false })
+    }
+    const list = session?.detections || []
+    return filterMapMarkers(list, { verifiedOnly: showVerifiedOnly })
+  }, [session, showRawDetections, showVerifiedOnly])
+
+  const hiddenEstimatedCount = useMemo(() => {
+    if (showRawDetections || !showVerifiedOnly) return 0
+    const all = filterMapMarkers(session?.detections || [], { verifiedOnly: false })
+    return Math.max(0, all.length - mapDetections.length)
+  }, [session, showRawDetections, showVerifiedOnly, mapDetections.length])
 
   const filteredDetections = useMemo(() => {
-    const list = session?.detections || []
+    const list = mapDetections
     if (!filterClass) return list
     return list.filter((d) => d.class === filterClass)
-  }, [session, filterClass])
+  }, [mapDetections, filterClass])
 
   const cameraMarkers = useMemo(() => {
     return (session?.locations || []).map((loc) => ({
@@ -129,15 +148,31 @@ export default function GsvMapResultsPage() {
 
   const handleSelectCamera = useCallback(
     (locationId) => {
-      const firstDet = (session?.detections || []).find((d) => d.location_id === locationId)
+      const pool = filterClass
+        ? (session?.detections || []).filter((d) => d.class === filterClass)
+        : session?.detections || []
+      const firstDet = pool.find((d) => d.location_id === locationId)
       if (firstDet) {
         handleSelectDetection(firstDet.detection_id)
       } else {
         loadLocationImagery(locationId, null, null)
       }
     },
-    [session, handleSelectDetection, loadLocationImagery]
+    [session, filterClass, handleSelectDetection, loadLocationImagery]
   )
+
+  const handleFilterClassChange = useCallback((cls) => {
+    setFilterClass(cls)
+  }, [])
+
+  useEffect(() => {
+    if (!selectedDetectionId) return
+    const det = (session?.detections || []).find((d) => d.detection_id === selectedDetectionId)
+    if (!det) return
+    if (filterClass && det.class !== filterClass) {
+      setSelectedDetectionId(null)
+    }
+  }, [filterClass, selectedDetectionId, session])
 
   const handleViewChange = useCallback((view) => {
     setSelectedView(view)
@@ -206,7 +241,8 @@ export default function GsvMapResultsPage() {
         <div className="dashboard-title-block">
           <h1 className="dashboard-title">Map detection results</h1>
           <p className="dashboard-subtitle">
-            {session.locations.length} locations · {totalObjects} objects · {durationLabel}
+            {session.locations.length} locations · {summary.totalVerified || summary.totalOfficial} verified
+            {summary.estimated > 0 ? ` · ${summary.estimated} estimated` : ''} · {durationLabel}
           </p>
         </div>
         <div className="dashboard-kpis">
@@ -260,19 +296,83 @@ export default function GsvMapResultsPage() {
         <div className="dashboard-body">
           <section className="dashboard-panel dashboard-panel-map">
             <div className="dashboard-panel-label">Detection map</div>
-            <GsvMapResultsMap
-              cameraMarkers={cameraMarkers}
-              detectionMarkers={filteredDetections}
-              trailPoints={trailPoints}
-              selectedLocationId={selectedLocationId}
-              selectedDetectionId={selectedDetectionId}
-              onSelectCamera={handleSelectCamera}
-              onSelectDetection={handleSelectDetection}
-              basemap={basemap}
-              onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
-              showRays={showRays}
-              onToggleRays={() => setShowRays((v) => !v)}
-            />
+            {showVerifiedOnly && hiddenEstimatedCount > 0 && !showRawDetections && (
+              <div
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  color: '#94a3b8',
+                  borderBottom: '1px solid var(--border)',
+                  background: 'rgba(148, 163, 184, 0.08)',
+                }}
+              >
+                {hiddenEstimatedCount} estimated static pin{hiddenEstimatedCount === 1 ? '' : 's'} hidden — toggle Verified only to show
+              </div>
+            )}
+            {showRawDetections && (
+              <div
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  color: '#f59e0b',
+                  borderBottom: '1px solid var(--border)',
+                  background: 'rgba(245, 158, 11, 0.1)',
+                }}
+              >
+                Debug mode: showing raw per-view pins (inflated counts). Switch to Official pins for government map.
+              </div>
+            )}
+            <div className="gsv-map-shell">
+              {map3dEnabled ? (
+                <GsvMapResults3DMap
+                  cameraMarkers={cameraMarkers}
+                  detectionMarkers={filteredDetections}
+                  trailPoints={trailPoints}
+                  selectedLocationId={selectedLocationId}
+                  selectedDetectionId={selectedDetectionId}
+                  onSelectCamera={handleSelectCamera}
+                  onSelectDetection={handleSelectDetection}
+                  basemap={basemap}
+                  onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
+                  showRays={showRays}
+                  onToggleRays={() => setShowRays((v) => !v)}
+                  showRawDetections={showRawDetections}
+                  onToggleRawDetections={
+                    session?.raw_detections?.length
+                      ? () => setShowRawDetections((v) => !v)
+                      : undefined
+                  }
+                  showVerifiedOnly={showVerifiedOnly}
+                  onToggleVerifiedOnly={() => setShowVerifiedOnly((v) => !v)}
+                />
+              ) : (
+                <GsvMapResultsMap
+                  cameraMarkers={cameraMarkers}
+                  detectionMarkers={filteredDetections}
+                  trailPoints={trailPoints}
+                  selectedLocationId={selectedLocationId}
+                  selectedDetectionId={selectedDetectionId}
+                  onSelectCamera={handleSelectCamera}
+                  onSelectDetection={handleSelectDetection}
+                  basemap={basemap}
+                  onBasemapToggle={() => setBasemap((b) => (b === 'street' ? 'satellite' : 'street'))}
+                  showRays={showRays}
+                  onToggleRays={() => setShowRays((v) => !v)}
+                  showRawDetections={showRawDetections}
+                  onToggleRawDetections={
+                    session?.raw_detections?.length
+                      ? () => setShowRawDetections((v) => !v)
+                      : undefined
+                  }
+                  showVerifiedOnly={showVerifiedOnly}
+                  onToggleVerifiedOnly={() => setShowVerifiedOnly((v) => !v)}
+                />
+              )}
+              <MapModeToggle
+                map3dEnabled={map3dEnabled}
+                onToggle={() => setMap3dEnabled((v) => !v)}
+              />
+            </div>
           </section>
 
           <section className="dashboard-panel dashboard-panel-viewer">
@@ -286,6 +386,7 @@ export default function GsvMapResultsPage() {
                   nav={navData}
                   detectionResult={detectionResult}
                   detecting={detecting}
+                  filterClass={filterClass}
                   onNavigate={() => {}}
                   onForwardClickZone={() => {}}
                 />
@@ -308,6 +409,7 @@ export default function GsvMapResultsPage() {
                     onViewChange={handleViewChange}
                     detectionResult={detectionResult}
                     detecting={detecting}
+                    filterClass={filterClass}
                   />
                   <GsvContinuedDetectionTable
                     detectionResult={detectionResult}
@@ -316,6 +418,8 @@ export default function GsvMapResultsPage() {
                     cameraLng={selectedPoint.lng}
                     highlightDetectionId={selectedDetectionId}
                     locationId={selectedLocationId}
+                    filterClass={filterClass}
+                    onFilterClassChange={handleFilterClassChange}
                   />
                 </div>
               </div>

@@ -1,0 +1,61 @@
+<mxfile host="65bd71144e">
+    <diagram id="gsv-continued-methodology" name="GSV Continued Pipeline">
+        <mxGraphModel dx="587" dy="266" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="620" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="&lt;b&gt;Urban Street Asset Methodology&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Imagery → AI detection → geolocation → map inventory&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=16;fontColor=#1a365d;" parent="1" vertex="1">
+                    <mxGeometry x="200" y="10" width="700" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1" value="&lt;b&gt;1. Dataset Preparation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;GPS + compass .mat file&lt;br&gt;Street-view image tiles (views 0–5)&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Indexed locations + nav graph&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="80" width="200" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2" value="&lt;b&gt;2. Map Explorer&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Load dataset&lt;br&gt;Camera trail + location dots&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Select intersection / street&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="80" width="200" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3" value="&lt;b&gt;3. Street Navigation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Forward / back / left / right links&lt;br&gt;Side views 1–4 for detection&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Active location + trail&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="560" y="80" width="200" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4" value="&lt;b&gt;4. Panorama AI Detection&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Up to 7 Roboflow models in parallel&lt;br&gt;Lights, poles, signals, signs, cars…&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Bounding boxes + class labels&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="820" y="80" width="220" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="s5" value="&lt;b&gt;5. GSV Geolocation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Camera GPS + view heading + bbox&lt;br&gt;Horizon ray &amp; size-based distance&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Bearing + estimated lat/lng&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="820" y="240" width="220" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="s6" value="&lt;b&gt;6. Fuse &amp; Road Snap&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Dedup across 4 side views&lt;br&gt;Corner snap (signals) / road edge (lights)&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Official objects + verified tier&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="560" y="240" width="200" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="s7" value="&lt;b&gt;7. Map Detection Session&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Walk multiple locations&lt;br&gt;Cross-location triangulation on end&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Session map inventory&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="240" width="200" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="s8" value="&lt;b&gt;8. Results &amp; Export&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Map pins, filters, sight lines&lt;br&gt;Verified vs estimated quality&lt;br&gt;&lt;b&gt;OUT:&lt;/b&gt; Dashboard + HTML report&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="240" width="200" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg1" value="&lt;font style=&quot;font-size:10px&quot;&gt;&lt;b&gt;Primary targets:&lt;/b&gt; Street Lights, Poles, Traffic Signals, Traffic Signs&lt;br&gt;&lt;b&gt;Also detected:&lt;/b&gt; Cars and other street objects (map optional)&lt;br&gt;&lt;b&gt;Quality tiers:&lt;/b&gt; Verified (high confidence) vs Estimated (review needed)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#333333;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="290" y="390" width="520" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=classic;" parent="1" source="s1" target="s2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=classic;" parent="1" source="s2" target="s3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=classic;" parent="1" source="s3" target="s4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=classic;" parent="1" source="s4" target="s5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=classic;" parent="1" source="s5" target="s6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=classic;" parent="1" source="s6" target="s7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=classic;" parent="1" source="s7" target="s8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

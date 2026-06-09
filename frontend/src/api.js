@@ -77,6 +77,8 @@ export const detectGsvContinuedPanorama = (id, options = {}) =>
     timeout: 360000,
     signal: options.signal,
   })
+export const refineGsvSession = (locations) =>
+  axios.post(`${BASE}/gsv-continued/sessions/refine`, { locations }, { timeout: 120000 })
 export const getGsvContinuedModelsHealth = () =>
   axios.get(`${BASE}/gsv-continued/models/health`, { timeout: 240000 })
 export const getGsvContinuedNav = (id, fromId = null) =>
